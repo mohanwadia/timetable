@@ -21,7 +21,7 @@ import pandas as pd
 STOP_TIMES_PATH = "../gtfs/4/google_transit/stop_times.txt"
 TRIPS_PATH = "../gtfs/4/google_transit/trips.txt"
 ROUTES_PATH = "../gtfs/4/google_transit/routes.txt"
-OUTPUT_PATH = "../gtfs/4/google_transit/condensed_stop_times.json"
+OUTPUT_PATH = "condensed_stop_times.json"
 
 CHUNK_SIZE = 1_000_000  # rows of stop_times.txt processed per chunk
 
