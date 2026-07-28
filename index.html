@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GTFS Weekly Timetable Builder</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 900px; margin: 30px auto; padding: 0 16px; color: #1c1c1c; }
+  h1 { font-size: 20px; }
+  fieldset { margin-bottom: 16px; border: 1px solid #ccc; border-radius: 6px; padding: 12px 16px; }
+  legend { font-weight: bold; font-size: 13px; }
+  label { display: block; font-size: 13px; margin: 8px 0 4px; }
+  input[type="text"] { width: 100%; padding: 6px; box-sizing: border-box; }
+  button { margin-top: 14px; padding: 10px 18px; font-size: 14px; background: #075aaa; color: #fff; border: none; border-radius: 5px; cursor: pointer; }
+  button:disabled { background: #999; cursor: not-allowed; }
+  #status { margin-top: 10px; font-size: 13px; color: #555; white-space: pre-line; }
+  #weekLabel { font-size: 13px; color: #333; margin-bottom: 8px; }
+  .day-block { margin-top: 24px; }
+  .day-block h2 { font-size: 16px; border-bottom: 2px solid #075aaa; padding-bottom: 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid #eee; }
+  th { background: #f2f4f6; }
+  .route-chip { display: inline-block; padding: 2px 7px; border-radius: 4px; color: #fff; font-weight: bold; font-size: 12px; }
+  .note { font-size: 12px; color: #777; }
+  #filterPanel { margin-top: 20px; padding: 12px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 6px; }
+  #filterPanel h3 { margin-top: 0; font-size: 14px; }
+  .filter-item { margin: 8px 0; }
+  .filter-item input[type="checkbox"] { margin-right: 6px; }
+  .filter-item label { display: inline; font-size: 13px; cursor: pointer; }
+  .stem-leaf-table { margin-top: 24px; width: 100%; border-collapse: collapse; font-size: 12px; }
+  .stem-leaf-table th, .stem-leaf-table td { padding: 6px; border: 1px solid #ddd; text-align: center; }
+  .stem-leaf-table th { background: #075aaa; color: white; font-weight: bold; }
+  .stem-leaf-table td:first-child { text-align: right; font-weight: bold; background: #f2f4f6; }
+  .stem-leaf-cell { font-family: monospace; white-space: pre-wrap; line-height: 1.4; }
+</style>
+</head>
+<body>
+
+<h1>GTFS Weekly Timetable Builder</h1>
+<p class="note">
+  Expects condensed_stop_times.json (built by preprocess.py), calendar.txt and calendar_dates.txt
+  to sit in the same folder as this HTML file, served over a local web server or GitHub Pages.
+  For local development, run <code>python3 -m http.server</code> in that folder and open
+  this page via <code>http://localhost:8000/...</code>.
+</p>
+
+<fieldset>
+  <legend>Stop</legend>
+  <label>stop_id</label>
+  <input type="text" id="stopIdInput" placeholder="e.g. 14065" disabled />
+  <div id="weekLabel"></div>
+  <button id="generateBtn" disabled>Generate timetable</button>
+  <div id="status">Loading reference data...</div>
+</fieldset>
+
+<div id="results"></div>
+
+<script>
+const DAY_NAMES = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+const DAY_LABELS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+const FILES = {
+  condensedStopTimes: "condensed_stop_times.json",
+  calendar: "calendar.txt",
+  calendarDates: "calendar_dates.txt",
+};
+
+// Populated once on page load, then reused for every generate click.
+let condensedByStop = null;
+let routesLookup = null;
+let directionsLookup = null;
+let calendarById = null;
+let exceptionByServiceDate = null;
+
+// Current timetable state
+let currentStopId = null;
+let currentPatterns = null;
+let selectedStems = new Set(); // Track which route|direction combos are selected
+
+const weekDates = getCurrentWeekDates();
+document.getElementById("weekLabel").textContent =
+  "Week starting Monday " + formatDateDisplay(weekDates[0]);
+
+document.getElementById("generateBtn").addEventListener("click", generateTimetable);
+
+window.addEventListener("DOMContentLoaded", loadReferenceData);
+
+function setStatus(msg) {
+  document.getElementById("status").textContent = msg;
+}
+
+// Returns an array of 7 Date objects for Mon..Sun of March 2-8, 2026.
+function getCurrentWeekDates() {
+  const monday = new Date(2026, 2, 2); // March 2, 2026 (month is 0-indexed, so 2 = March)
+  monday.setHours(0, 0, 0, 0);
+
+  const dates = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    dates.push(d);
+  }
+  return dates;
+}
+
+function toGtfsDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}${m}${day}`;
+}
+
+function formatDateDisplay(d) {
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
+// Loads condensed_stop_times.json, calendar.txt and calendar_dates.txt once,
+// up front, so every subsequent "Generate" click is instant.
+async function loadReferenceData() {
+  try {
+    setStatus("Loading condensed_stop_times.json (this is the one big fetch)...");
+    const res = await fetch(FILES.condensedStopTimes);
+    if (!res.ok) throw new Error(`Could not fetch ${FILES.condensedStopTimes} (${res.status})`);
+    const data = await res.json();
+
+    // Unpack the compressed structure
+    condensedByStop = data.stops;
+    routesLookup = data.routes;
+    directionsLookup = data.directions;
+
+    setStatus("Loading calendar.txt...");
+    const calendarRows = await parseFullFile(FILES.calendar);
+    calendarById = {};
+    calendarRows.forEach(r => { calendarById[r.service_id] = r; });
+
+    setStatus("Loading calendar_dates.txt...");
+    const calendarDateRows = await parseFullFile(FILES.calendarDates);
+    exceptionByServiceDate = {};
+    calendarDateRows.forEach(r => {
+      exceptionByServiceDate[r.service_id + "_" + r.date] = r.exception_type;
+    });
+
+    document.getElementById("stopIdInput").disabled = false;
+    document.getElementById("generateBtn").disabled = false;
+    setStatus(`Ready. Loaded ${Object.keys(condensedByStop).length.toLocaleString()} stops.`);
+  } catch (err) {
+    console.error(err);
+    setStatus("Error loading reference data: " + err.message + " (check the files are in the same folder and you're running via a local web server, not file://)");
+  }
+}
+
+function parseFullFile(path) {
+  return new Promise((resolve, reject) => {
+    Papa.parse(path, {
+      download: true,
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => resolve(results.data),
+      error: reject,
+    });
+  });
+}
+
+function generateTimetable() {
+  const stopId = document.getElementById("stopIdInput").value.trim();
+  if (!stopId) {
+    setStatus("Please enter a stop_id.");
+    return;
+  }
+
+  document.getElementById("results").innerHTML = "";
+
+  const patterns = condensedByStop[stopId];
+  if (!patterns || Object.keys(patterns).length === 0) {
+    setStatus(`No departures found for stop_id ${stopId}.`);
+    return;
+  }
+
+  currentStopId = stopId;
+  currentPatterns = patterns;
+  
+  const grouped = buildPatternGroups(patterns);
+  const stems = Object.keys(grouped).sort();
+  
+  // Initialize all stems as selected
+  selectedStems.clear();
+  stems.forEach(stem => selectedStems.add(stem));
+  
+  // Build filter panel
+  buildFilterPanel(grouped, stems);
+  
+  // Render table
+  renderStemLeafTable(grouped, stopId);
+  
+  const totalDepartures = Object.values(patterns).reduce((sum, times) => sum + times.length, 0);
+  setStatus(`Done. ${stems.length} route/direction combos (${totalDepartures} total departures) for this stop.`);
+}
+
+function buildFilterPanel(grouped, stems) {
+  const resultsDiv = document.getElementById("results");
+  
+  const filterDiv = document.createElement("div");
+  filterDiv.id = "filterPanel";
+  
+  const title = document.createElement("h3");
+  title.textContent = "Select Routes & Directions to Display";
+  filterDiv.appendChild(title);
+  
+  stems.forEach(stem => {
+    const data = grouped[stem];
+    
+    const item = document.createElement("div");
+    item.className = "filter-item";
+    
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.id = `stem-${stem}`;
+    checkbox.checked = true;
+    checkbox.value = stem;
+    checkbox.addEventListener("change", (e) => {
+      if (e.target.checked) {
+        selectedStems.add(stem);
+      } else {
+        selectedStems.delete(stem);
+      }
+      renderStemLeafTable(grouped, currentStopId);
+    });
+    
+    const label = document.createElement("label");
+    label.htmlFor = `stem-${stem}`;
+    label.innerHTML = `<span class="route-chip" style="background:#${data.route_color}">${escapeHtml(data.route_short_name)}</span> ${escapeHtml(data.direction)}`;
+    
+    item.appendChild(checkbox);
+    item.appendChild(label);
+    filterDiv.appendChild(item);
+  });
+  
+  resultsDiv.appendChild(filterDiv);
+}
+
+// patterns is an object: "route_id|direction_id|day_pattern" -> [times]
+// Returns grouped patterns by route|direction stem
+function buildPatternGroups(patterns) {
+  const grouped = {};
+
+  // Iterate over each pattern key: "route_id|direction_id|day_pattern"
+  for (const key in patterns) {
+    const times = patterns[key];
+    const [routeId, directionId, dayPattern] = key.split("|");
+    
+    const routeData = routesLookup[routeId];
+    const direction = directionsLookup[String(directionId)];
+    
+    // Create stem: route|direction (grouped key)
+    const stem = `${routeId}|${directionId}`;
+    if (!grouped[stem]) {
+      grouped[stem] = {
+        route_short_name: routeData.name,
+        route_color: routeData.color,
+        direction,
+        patterns: {} // day_pattern -> [times]
+      };
+    }
+    
+    // Store times by day pattern
+    grouped[stem].patterns[dayPattern] = times;
+  }
+
+  return grouped;
+}
+
+// Convert time "HH:MM:SS" to 12-hour format and extract minutes
+function getHourBucket(timeStr) {
+  const [hh] = timeStr.split(":");
+  const hour = parseInt(hh);
+  return hour; // 0-23 for grouping
+}
+
+function formatHourLabel(hour24) {
+  if (hour24 === 0) return "12 AM";
+  if (hour24 < 12) return `${hour24} AM`;
+  if (hour24 === 12) return "12 PM";
+  return `${hour24 - 12} PM`;
+}
+
+function extractMinutes(timeStr) {
+  const [, mm] = timeStr.split(":");
+  return mm;
+}
+
+// Build stem-and-leaf data: hour -> day_pattern -> [minutes]
+function buildStemLeafData(grouped, selectedStems) {
+  const stemLeaf = {};
+  
+  // Initialize all 24 hours
+  for (let h = 0; h < 24; h++) {
+    stemLeaf[h] = {
+      weekday: [],
+      saturday: [],
+      sunday: []
+    };
+  }
+  
+  // Populate with selected stems
+  for (const stem of selectedStems) {
+    if (!grouped[stem]) continue;
+    
+    const data = grouped[stem];
+    for (const dayPattern in data.patterns) {
+      const times = data.patterns[dayPattern];
+      times.forEach(time => {
+        const hour = getHourBucket(time);
+        const minutes = extractMinutes(time);
+        
+        if (dayPattern === 'weekday') {
+          stemLeaf[hour].weekday.push(minutes);
+        } else if (dayPattern === 'saturday') {
+          stemLeaf[hour].saturday.push(minutes);
+        } else if (dayPattern === 'sunday') {
+          stemLeaf[hour].sunday.push(minutes);
+        }
+      });
+    }
+  }
+  
+  // Sort minutes within each hour/day
+  for (let h = 0; h < 24; h++) {
+    stemLeaf[h].weekday.sort();
+    stemLeaf[h].saturday.sort();
+    stemLeaf[h].sunday.sort();
+  }
+  
+  return stemLeaf;
+}
+
+function renderStemLeafTable(grouped, stopId) {
+  // Remove old table if exists
+  const existingTable = document.querySelector(".stem-leaf-table");
+  if (existingTable) {
+    existingTable.remove();
+  }
+  
+  const container = document.getElementById("results");
+  
+  if (selectedStems.size === 0) {
+    const p = document.createElement("p");
+    p.style.fontSize = "13px";
+    p.style.color = "#777";
+    p.style.marginTop = "20px";
+    p.textContent = "No routes/directions selected.";
+    container.appendChild(p);
+    return;
+  }
+  
+  const stemLeaf = buildStemLeafData(grouped, selectedStems);
+  
+  const table = document.createElement("table");
+  table.className = "stem-leaf-table";
+  
+  // Build header
+  const thead = document.createElement("thead");
+  thead.innerHTML = `
+    <tr>
+      <th>Hour</th>
+      <th>Weekday (M-F)</th>
+      <th>Saturday</th>
+      <th>Sunday</th>
+    </tr>
+  `;
+  table.appendChild(thead);
+  
+  // Build body: 24 rows for each hour
+  const tbody = document.createElement("tbody");
+  for (let h = 0; h < 24; h++) {
+    const row = document.createElement("tr");
+    
+    const hourCell = document.createElement("td");
+    hourCell.textContent = formatHourLabel(h);
+    row.appendChild(hourCell);
+    
+    // Weekday
+    const weekdayCell = document.createElement("td");
+    weekdayCell.className = "stem-leaf-cell";
+    weekdayCell.textContent = stemLeaf[h].weekday.join(", ");
+    row.appendChild(weekdayCell);
+    
+    // Saturday
+    const saturdayCell = document.createElement("td");
+    saturdayCell.className = "stem-leaf-cell";
+    saturdayCell.textContent = stemLeaf[h].saturday.join(", ");
+    row.appendChild(saturdayCell);
+    
+    // Sunday
+    const sundayCell = document.createElement("td");
+    sundayCell.className = "stem-leaf-cell";
+    sundayCell.textContent = stemLeaf[h].sunday.join(", ");
+    row.appendChild(sundayCell);
+    
+    tbody.appendChild(row);
+  }
+  table.appendChild(tbody);
+  
+  container.appendChild(table);
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+</script>
+
+</body>
+</html>
