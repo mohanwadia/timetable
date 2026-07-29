@@ -3,101 +3,65 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>GTFS Weekly Timetable Builder</title>
+<title>GTFS Timetable</title>
 <style>
-  body { font-family: Arial, sans-serif; max-width: 900px; margin: 30px auto; padding: 0 16px; color: #1c1c1c; }
-  h1 { font-size: 20px; }
-  fieldset { margin-bottom: 16px; border: 1px solid #ccc; border-radius: 6px; padding: 12px 16px; }
-  legend { font-weight: bold; font-size: 13px; }
-  label { display: block; font-size: 13px; margin: 8px 0 4px; }
-  input[type="text"] { width: 100%; padding: 6px; box-sizing: border-box; }
-  button { margin-top: 14px; padding: 10px 18px; font-size: 14px; background: #075aaa; color: #fff; border: none; border-radius: 5px; cursor: pointer; }
-  button:disabled { background: #999; cursor: not-allowed; }
-  #status { margin-top: 10px; font-size: 13px; color: #555; white-space: pre-line; }
-  #weekLabel { font-size: 13px; color: #333; margin-bottom: 8px; }
-  .day-block { margin-top: 24px; }
-  .day-block h2 { font-size: 16px; border-bottom: 2px solid #075aaa; padding-bottom: 4px; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid #eee; }
-  th { background: #f2f4f6; }
-  .route-chip { display: inline-block; padding: 2px 7px; border-radius: 4px; color: #fff; font-weight: bold; font-size: 12px; }
-  .note { font-size: 12px; color: #777; }
-  #filterPanel { margin-top: 20px; padding: 12px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 6px; }
-  #filterPanel h3 { margin-top: 0; font-size: 14px; }
-  .filter-item { margin: 8px 0; }
-  .filter-item input[type="checkbox"] { margin-right: 6px; }
-  .filter-item label { display: inline; font-size: 13px; cursor: pointer; }
-  .stem-leaf-table { margin-top: 24px; width: 100%; border-collapse: collapse; font-size: 12px; }
-  .stem-leaf-table th, .stem-leaf-table td { padding: 6px; border: 1px solid #ddd; text-align: center; }
-  .stem-leaf-table th { background: #075aaa; color: white; font-weight: bold; }
-  .stem-leaf-table td:first-child { text-align: right; font-weight: bold; background: #f2f4f6; }
-  .stem-leaf-cell { font-family: monospace; white-space: pre-wrap; line-height: 1.4; }
-  .stem-leaf-cell sup { font-family: Arial, sans-serif; font-weight: bold; color: #b3260f; margin-left: 1px; }
-  .results-message { font-size: 13px; color: #777; margin-top: 20px; }
-  .footnote-legend { margin-top: 14px; padding: 10px 12px; background: #fff7ec; border: 1px solid #eecfa0; border-radius: 6px; font-size: 12px; }
-  .footnote-legend p { margin: 3px 0; }
-  .footnote-legend sup { font-weight: bold; color: #b3260f; margin-right: 4px; }
+  body { font-family: sans-serif; font-size: 14px; max-width: 800px; margin: 40px auto; padding: 0 16px; color: #000; }
+  h1 { font-size: 18px; margin-bottom: 4px; }
+  p.desc { color: #555; margin-top: 0; }
+  label { display: block; margin-top: 12px; }
+  input[type="text"] { width: 240px; padding: 4px; font-size: 14px; margin-top: 4px; }
+  button { margin-top: 10px; padding: 5px 14px; font-size: 14px; cursor: pointer; display: block; }
+  button:disabled { color: #999; cursor: not-allowed; }
+  #status { margin-top: 8px; color: #555; }
+  #filterPanel { margin-top: 20px; }
+  #filterPanel h2 { font-size: 14px; margin-bottom: 6px; }
+  .filter-item { margin: 4px 0; }
+  .filter-item label { display: inline; cursor: pointer; }
+  table { margin-top: 20px; border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; vertical-align: top; }
+  th { background: #eee; font-weight: bold; }
+  td:first-child { width: 60px; font-weight: bold; white-space: nowrap; }
+  td { font-family: monospace; }
+  td:first-child { font-family: sans-serif; }
+  sup { font-family: sans-serif; font-weight: bold; }
+  #footnotes { margin-top: 10px; font-size: 12px; }
+  #footnotes p { margin: 2px 0; }
 </style>
 </head>
 <body>
 
-<h1>GTFS Weekly Timetable Builder</h1>
-<p class="note">
-  Expects condensed_stop_times.json (built by preprocess.py) to sit in the same folder as this
-  HTML file, served over a local web server or GitHub Pages. Day-of-week classification, special
-  calendar patterns, exception dates, and short-working trips are all resolved once at
-  preprocessing time -- special cases show up here as lettered footnotes rather than extra
-  columns. For local development, run <code>python3 -m http.server</code> in that folder and open
-  this page via <code>http://localhost:8000/...</code>.
-</p>
+<h1>GTFS Timetable</h1>
 
-<fieldset>
-  <legend>Stop</legend>
-  <label>stop_id</label>
+<label>stop_id
   <input type="text" id="stopIdInput" placeholder="e.g. 14065" disabled />
-  <div id="weekLabel"></div>
-  <button id="generateBtn" disabled>Generate timetable</button>
-  <div id="status">Loading reference data...</div>
-</fieldset>
+</label>
+<button id="generateBtn" disabled>Generate timetable</button>
 
 <div id="results"></div>
 
 <script>
 const BUCKETS = ["weekday", "saturday", "sunday"];
-const BUCKET_LABELS = { weekday: "Weekday (M-F)", saturday: "Saturday", sunday: "Sunday" };
+const BUCKET_LABELS = { weekday: "Weekday (M–F)", saturday: "Saturday", sunday: "Sunday" };
 
-const FILES = {
-  condensedStopTimes: "condensed_stop_times.json",
-};
-
-// Populated once on page load, then reused for every generate click.
 let condensedByStop = null;
 let routesLookup = null;
 let directionsLookup = null;
 let dayPatternsLookup = null;
-
-// Current timetable state
 let currentStopId = null;
-let currentPatterns = null;
-let selectedStems = new Set(); // Track which route|direction combos are selected
+let selectedStems = new Set();
 
 const weekDates = getCurrentWeekDates();
-document.getElementById("weekLabel").textContent =
-  "Week starting Monday " + formatDateDisplay(weekDates[0]);
 
 document.getElementById("generateBtn").addEventListener("click", generateTimetable);
-
 window.addEventListener("DOMContentLoaded", loadReferenceData);
 
 function setStatus(msg) {
   document.getElementById("status").textContent = msg;
 }
 
-// Returns an array of 7 Date objects for Mon..Sun of March 2-8, 2026.
 function getCurrentWeekDates() {
-  const monday = new Date(2026, 2, 2); // March 2, 2026 (month is 0-indexed, so 2 = March)
+  const monday = new Date(2026, 2, 2);
   monday.setHours(0, 0, 0, 0);
-
   const dates = [];
   for (let i = 0; i < 7; i++) {
     const d = new Date(monday);
@@ -111,372 +75,237 @@ function formatDateDisplay(d) {
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
-// Loads condensed_stop_times.json once, up front, so every subsequent
-// "Generate" click is instant. Day patterns, calendar exceptions, and
-// short-working trips are already fully resolved in this file by
-// preprocess.py (using partridge + a stop_sequence pass), so there's
-// nothing else to fetch or classify here.
 async function loadReferenceData() {
   try {
-    setStatus("Loading condensed_stop_times.json...");
-    const res = await fetch(FILES.condensedStopTimes);
-    if (!res.ok) throw new Error(`Could not fetch ${FILES.condensedStopTimes} (${res.status})`);
+    const res = await fetch("condensed_stop_times.json");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-
-    condensedByStop = data.stops;
-    routesLookup = data.routes;
-    directionsLookup = data.directions;
+    condensedByStop   = data.stops;
+    routesLookup      = data.routes;
+    directionsLookup  = data.directions;
     dayPatternsLookup = data.day_patterns || {};
-
     document.getElementById("stopIdInput").disabled = false;
     document.getElementById("generateBtn").disabled = false;
-    setStatus(`Ready. Loaded ${Object.keys(condensedByStop).length.toLocaleString()} stops.`);
+    setStatus(`Loaded ${Object.keys(condensedByStop).length.toLocaleString()} stops.`);
   } catch (err) {
-    console.error(err);
-    setStatus("Error loading reference data: " + err.message + " (check the file is in the same folder and you're running via a local web server, not file://)");
+    setStatus("Error loading condensed_stop_times.json: " + err.message);
   }
 }
 
 function generateTimetable() {
   const stopId = document.getElementById("stopIdInput").value.trim();
-  if (!stopId) {
-    setStatus("Please enter a stop_id.");
-    return;
-  }
+  if (!stopId) { setStatus("Enter a stop_id."); return; }
 
   document.getElementById("results").innerHTML = "";
 
   const patterns = condensedByStop[stopId];
   if (!patterns || Object.keys(patterns).length === 0) {
-    setStatus(`No departures found for stop_id ${stopId}.`);
+    setStatus(`No departures found for stop ${stopId}.`);
     return;
   }
 
   currentStopId = stopId;
-  currentPatterns = patterns;
-
   const grouped = buildPatternGroups(patterns);
   const stems = Object.keys(grouped).sort();
+  selectedStems = new Set(stems);
 
-  // Initialize all stems as selected
-  selectedStems.clear();
-  stems.forEach(stem => selectedStems.add(stem));
-
-  // Build filter panel
   buildFilterPanel(grouped, stems);
+  renderTable(grouped);
 
-  // Render table
-  renderStemLeafTable(grouped, stopId);
-
-  const totalDepartures = Object.values(patterns).reduce((sum, entries) => sum + entries.length, 0);
-  setStatus(`Done. ${stems.length} route/direction combos (${totalDepartures} total departures) for this stop.`);
+  const total = Object.values(patterns).reduce((s, e) => s + e.length, 0);
+  setStatus(`Stop ${stopId}: ${stems.length} route/direction(s), ${total} departures.`);
 }
 
 function buildFilterPanel(grouped, stems) {
-  const resultsDiv = document.getElementById("results");
+  const results = document.getElementById("results");
+  const div = document.createElement("div");
+  div.id = "filterPanel";
 
-  const filterDiv = document.createElement("div");
-  filterDiv.id = "filterPanel";
-
-  const title = document.createElement("h3");
-  title.textContent = "Select Routes & Directions to Display";
-  filterDiv.appendChild(title);
+  const h2 = document.createElement("h2");
+  h2.textContent = "Routes / directions";
+  div.appendChild(h2);
 
   stems.forEach(stem => {
     const data = grouped[stem];
-
     const item = document.createElement("div");
     item.className = "filter-item";
 
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.id = `stem-${stem}`;
-    checkbox.checked = true;
-    checkbox.value = stem;
-    checkbox.addEventListener("change", (e) => {
-      if (e.target.checked) {
-        selectedStems.add(stem);
-      } else {
-        selectedStems.delete(stem);
-      }
-      renderStemLeafTable(grouped, currentStopId);
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.id = "stem-" + stem;
+    cb.checked = true;
+    cb.addEventListener("change", () => {
+      cb.checked ? selectedStems.add(stem) : selectedStems.delete(stem);
+      renderTable(grouped);
     });
 
-    const label = document.createElement("label");
-    label.htmlFor = `stem-${stem}`;
-    label.innerHTML = `<span class="route-chip" style="background:#${data.route_color}">${escapeHtml(data.route_short_name)}</span> ${escapeHtml(data.direction)}`;
+    const lbl = document.createElement("label");
+    lbl.htmlFor = "stem-" + stem;
+    lbl.textContent = " " + data.route_short_name + " — " + data.direction;
 
-    item.appendChild(checkbox);
-    item.appendChild(label);
-    filterDiv.appendChild(item);
+    item.appendChild(cb);
+    item.appendChild(lbl);
+    div.appendChild(item);
   });
 
-  resultsDiv.appendChild(filterDiv);
+  results.appendChild(div);
 }
 
-// A departure entry from the JSON is either a plain "HH:MM:SS" string (no
-// footnotes) or a ["HH:MM:SS", ["note text", ...]] pair (has footnotes).
-function entryTime(entry) {
-  return typeof entry === "string" ? entry : entry[0];
-}
-function entryNotes(entry) {
-  return typeof entry === "string" ? [] : entry[1];
-}
+function entryTime(e)  { return typeof e === "string" ? e : e[0]; }
+function entryNotes(e) { return typeof e === "string" ? [] : e[1]; }
 
-// Merges + dedupes a list of entries by time, unioning their footnotes.
 function dedupeAndSortEntries(entries) {
   const byTime = new Map();
-  entries.forEach(entry => {
-    const t = entryTime(entry);
-    const notes = entryNotes(entry);
+  entries.forEach(e => {
+    const t = entryTime(e);
     if (!byTime.has(t)) byTime.set(t, new Set());
-    notes.forEach(n => byTime.get(t).add(n));
+    entryNotes(e).forEach(n => byTime.get(t).add(n));
   });
-  return Array.from(byTime.keys())
-    .sort()
-    .map(t => {
-      const notes = Array.from(byTime.get(t)).sort();
-      return notes.length ? [t, notes] : t;
-    });
+  return Array.from(byTime.keys()).sort().map(t => {
+    const notes = Array.from(byTime.get(t)).sort();
+    return notes.length ? [t, notes] : t;
+  });
 }
 
-// Maps a 7-character Mon..Sun bitstring (from preprocess.py) to the display
-// columns the table uses. A service running Mon-Fri maps to "weekday", bit 5
-// (index 5) is Saturday, bit 6 (index 6) is Sunday. A "daily" service (all
-// 7 bits set) appears in all three columns. Custom patterns (e.g. Mon+Sat
-// only) land in whichever standard columns their active days overlap.
 function bitsToDisplayBuckets(bits) {
-  const buckets = new Set();
-  if (bits.slice(0, 5).includes("1")) buckets.add("weekday");
-  if (bits[5] === "1") buckets.add("saturday");
-  if (bits[6] === "1") buckets.add("sunday");
-  return Array.from(buckets);
+  const out = new Set();
+  if (bits.slice(0, 5).includes("1")) out.add("weekday");
+  if (bits[5] === "1") out.add("saturday");
+  if (bits[6] === "1") out.add("sunday");
+  return Array.from(out);
 }
 
-// patterns is an object: "route_id|direction_id|bits" -> [entries]
-// where bits is a 7-char Mon..Sun bitstring produced by preprocess.py.
-// Returns grouped patterns by route|direction stem.
-// Grouping is keyed on the *displayed* route name + direction text, so that
-// two different route_id/direction_id combos that render identically (e.g.
-// same headsign text under different direction_ids) collapse into a single
-// checkbox instead of appearing twice.
 function buildPatternGroups(patterns) {
   const grouped = {};
-
   for (const key in patterns) {
     const entries = patterns[key];
     const [routeId, directionId, bits] = key.split("|");
-
     const routeData = routesLookup[routeId];
     const direction = directionsLookup[String(directionId)];
-
-    const stem = `${routeData.name}|${direction}`;
+    const stem = routeData.name + "|" + direction;
     if (!grouped[stem]) {
-      grouped[stem] = {
-        route_short_name: routeData.name,
-        route_color: routeData.color,
-        direction,
-        patterns: {} // bucket -> [entries]
-      };
+      grouped[stem] = { route_short_name: routeData.name, route_color: routeData.color, direction, patterns: {} };
     }
-
-    // A single bitstring may cover multiple display buckets (e.g. "daily").
-    const displayBuckets = bitsToDisplayBuckets(bits);
-    displayBuckets.forEach(bucket => {
-      if (!grouped[stem].patterns[bucket]) {
-        grouped[stem].patterns[bucket] = entries.slice();
-      } else {
-        grouped[stem].patterns[bucket] = grouped[stem].patterns[bucket].concat(entries);
-      }
+    bitsToDisplayBuckets(bits).forEach(bucket => {
+      grouped[stem].patterns[bucket] = grouped[stem].patterns[bucket]
+        ? grouped[stem].patterns[bucket].concat(entries)
+        : entries.slice();
     });
   }
-
   for (const stem in grouped) {
-    const patterns2 = grouped[stem].patterns;
-    for (const bucket in patterns2) {
-      patterns2[bucket] = dedupeAndSortEntries(patterns2[bucket]);
-    }
+    const p = grouped[stem].patterns;
+    for (const b in p) p[b] = dedupeAndSortEntries(p[b]);
   }
-
   return grouped;
 }
 
-function getHourBucket(timeStr) {
-  const [hh] = timeStr.split(":");
-  return parseInt(hh, 10); // may exceed 23 for GTFS post-midnight trips
-}
-
-function formatHourLabel(hour24) {
-  const wrapped = ((hour24 % 24) + 24) % 24;
-  if (wrapped === 0) return "12 AM";
-  if (wrapped < 12) return `${wrapped} AM`;
-  if (wrapped === 12) return "12 PM";
-  return `${wrapped - 12} PM`;
-}
-
-function extractMinutes(timeStr) {
-  const [, mm] = timeStr.split(":");
-  return mm;
-}
-
-// Build stem-and-leaf data: hour -> bucket -> [{ minutes, notes }]
-function buildStemLeafData(grouped, selectedStems) {
-  const stemLeaf = {};
-
-  for (let h = 0; h < 24; h++) {
-    stemLeaf[h] = { weekday: [], saturday: [], sunday: [] };
-  }
+function buildStemLeafData(grouped) {
+  const sl = {};
+  for (let h = 0; h < 24; h++) sl[h] = { weekday: [], saturday: [], sunday: [] };
 
   for (const stem of selectedStems) {
     if (!grouped[stem]) continue;
-    const data = grouped[stem];
-
     BUCKETS.forEach(bucket => {
-      const entries = data.patterns[bucket];
-      if (!entries) return;
-      entries.forEach(entry => {
-        const time = entryTime(entry);
-        const notes = entryNotes(entry);
-        const hour = getHourBucket(time) % 24;
-        const minutes = extractMinutes(time);
-        stemLeaf[hour][bucket].push({ minutes, notes });
+      (grouped[stem].patterns[bucket] || []).forEach(e => {
+        const time = entryTime(e);
+        const hour = parseInt(time.split(":")[0], 10) % 24;
+        sl[hour][bucket].push({ minutes: time.split(":")[1], notes: entryNotes(e) });
       });
     });
   }
-
-  for (let h = 0; h < 24; h++) {
-    BUCKETS.forEach(bucket => {
-      stemLeaf[h][bucket].sort((a, b) => a.minutes.localeCompare(b.minutes));
-    });
-  }
-
-  return stemLeaf;
+  for (let h = 0; h < 24; h++)
+    BUCKETS.forEach(b => sl[h][b].sort((a, z) => a.minutes.localeCompare(z.minutes)));
+  return sl;
 }
 
-// Scans the stem-leaf data in display order (hour, then Weekday/Sat/Sun,
-// then departure order) and assigns each distinct footnote text the next
-// capital letter (A, B, ... Z, AA, AB, ...) the first time it's seen.
-function assignFootnoteLetters(stemLeaf) {
-  const letterMap = new Map();
-  let nextIndex = 0;
-  for (let h = 0; h < 24; h++) {
-    BUCKETS.forEach(bucket => {
-      stemLeaf[h][bucket].forEach(item => {
-        item.notes.forEach(note => {
-          if (!letterMap.has(note)) {
-            letterMap.set(note, letterForIndex(nextIndex));
-            nextIndex++;
-          }
-        });
-      });
-    });
-  }
-  return letterMap;
+function assignFootnoteLetters(sl) {
+  const map = new Map();
+  let idx = 0;
+  for (let h = 0; h < 24; h++)
+    BUCKETS.forEach(b => sl[h][b].forEach(item =>
+      item.notes.forEach(n => { if (!map.has(n)) map.set(n, letterForIndex(idx++)); })
+    ));
+  return map;
 }
 
 function letterForIndex(n) {
-  let result = "";
-  n += 1;
-  while (n > 0) {
-    n -= 1;
-    result = String.fromCharCode(65 + (n % 26)) + result;
-    n = Math.floor(n / 26);
-  }
-  return result;
+  let r = ""; n += 1;
+  while (n > 0) { n--; r = String.fromCharCode(65 + n % 26) + r; n = Math.floor(n / 26); }
+  return r;
 }
 
-function formatCellHtml(items, letterMap) {
-  if (items.length === 0) return "";
-  return items
-    .map(item => {
-      if (item.notes.length === 0) return escapeHtml(item.minutes);
-      const letters = item.notes.map(n => letterMap.get(n)).join(",");
-      return `${escapeHtml(item.minutes)}<sup>${letters}</sup>`;
-    })
-    .join(", ");
+function cellHtml(items, map) {
+  return items.map(item => {
+    const m = escapeHtml(item.minutes);
+    if (!item.notes.length) return m;
+    return m + "<sup>" + item.notes.map(n => map.get(n)).join(",") + "</sup>";
+  }).join("  ");
 }
 
-function clearResults() {
-  document.querySelectorAll(".stem-leaf-table, .footnote-legend, .results-message").forEach(el => el.remove());
-}
-
-function renderStemLeafTable(grouped, stopId) {
-  clearResults();
-
+function renderTable(grouped) {
+  document.querySelectorAll("table, #footnotes").forEach(el => el.remove());
   const container = document.getElementById("results");
 
   if (selectedStems.size === 0) {
     const p = document.createElement("p");
-    p.className = "results-message";
-    p.textContent = "No routes/directions selected.";
+    p.textContent = "No routes selected.";
     container.appendChild(p);
     return;
   }
 
-  const stemLeaf = buildStemLeafData(grouped, selectedStems);
-  const letterMap = assignFootnoteLetters(stemLeaf);
+  const sl = buildStemLeafData(grouped);
+  const letterMap = assignFootnoteLetters(sl);
 
   const table = document.createElement("table");
-  table.className = "stem-leaf-table";
-
-  // Header is always exactly these three columns -- special patterns,
-  // exception dates, and short workings show up as footnotes instead.
-  const thead = document.createElement("thead");
-  const headRow = document.createElement("tr");
-  const hourTh = document.createElement("th");
-  hourTh.textContent = "Hour";
-  headRow.appendChild(hourTh);
-  BUCKETS.forEach(bucket => {
+  const thead = table.createTHead();
+  const hr = thead.insertRow();
+  ["Hour", ...BUCKETS.map(b => BUCKET_LABELS[b])].forEach(txt => {
     const th = document.createElement("th");
-    th.textContent = BUCKET_LABELS[bucket];
-    headRow.appendChild(th);
+    th.textContent = txt;
+    hr.appendChild(th);
   });
-  thead.appendChild(headRow);
-  table.appendChild(thead);
 
-  const tbody = document.createElement("tbody");
+  const tbody = table.createTBody();
   for (let h = 0; h < 24; h++) {
-    const row = document.createElement("tr");
-
-    const hourCell = document.createElement("td");
-    hourCell.textContent = formatHourLabel(h);
-    row.appendChild(hourCell);
-
-    BUCKETS.forEach(bucket => {
-      const cell = document.createElement("td");
-      cell.className = "stem-leaf-cell";
-      cell.innerHTML = formatCellHtml(stemLeaf[h][bucket], letterMap);
-      row.appendChild(cell);
+    const hasData = BUCKETS.some(b => sl[h][b].length > 0);
+    if (!hasData) continue;
+    const row = tbody.insertRow();
+    const hourCell = row.insertCell();
+    hourCell.textContent = formatHour(h);
+    BUCKETS.forEach(b => {
+      const cell = row.insertCell();
+      cell.innerHTML = cellHtml(sl[h][b], letterMap);
     });
-
-    tbody.appendChild(row);
   }
-  table.appendChild(tbody);
 
   container.appendChild(table);
 
   if (letterMap.size > 0) {
-    const legend = document.createElement("div");
-    legend.className = "footnote-legend";
-    // Show A, B, C... in assignment order rather than alphabetically, since
-    // that's the order they're first encountered reading the table.
+    const fn = document.createElement("div");
+    fn.id = "footnotes";
     Array.from(letterMap.entries())
       .sort((a, b) => a[1].length - b[1].length || a[1].localeCompare(b[1]))
       .forEach(([note, letter]) => {
         const p = document.createElement("p");
-        p.innerHTML = `<sup>${letter}</sup>${escapeHtml(note)}`;
-        legend.appendChild(p);
+        p.innerHTML = "<sup>" + letter + "</sup> " + escapeHtml(note);
+        fn.appendChild(p);
       });
-    container.appendChild(legend);
+    container.appendChild(fn);
   }
 }
 
+function formatHour(h) {
+  const w = h % 24;
+  if (w === 0) return "12 AM";
+  if (w < 12) return w + " AM";
+  if (w === 12) return "12 PM";
+  return (w - 12) + " PM";
+}
+
 function escapeHtml(str) {
-  return String(str).replace(/[&<>"']/g, c => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-  }[c]));
+  return String(str).replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 </script>
-
 </body>
 </html>
