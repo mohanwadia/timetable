@@ -33,9 +33,11 @@
 <h1>GTFS Timetable</h1>
 
 <label>stop_id
-  <input type="text" id="stopIdInput" placeholder="e.g. 14065" disabled />
+  <input type="text" id="stopIdInput" placeholder="" disabled />
 </label>
 <button id="generateBtn" disabled>Generate timetable</button>
+<button id="randomBtn" disabled>Random</button>
+<div id="status">Loading...</div>
 
 <div id="results"></div>
 
@@ -50,29 +52,12 @@ let dayPatternsLookup = null;
 let currentStopId = null;
 let selectedStems = new Set();
 
-const weekDates = getCurrentWeekDates();
-
 document.getElementById("generateBtn").addEventListener("click", generateTimetable);
+document.getElementById("randomBtn").addEventListener("click", randomTimetable);
 window.addEventListener("DOMContentLoaded", loadReferenceData);
 
 function setStatus(msg) {
   document.getElementById("status").textContent = msg;
-}
-
-function getCurrentWeekDates() {
-  const monday = new Date(2026, 2, 2);
-  monday.setHours(0, 0, 0, 0);
-  const dates = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    dates.push(d);
-  }
-  return dates;
-}
-
-function formatDateDisplay(d) {
-  return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
 async function loadReferenceData() {
@@ -86,10 +71,21 @@ async function loadReferenceData() {
     dayPatternsLookup = data.day_patterns || {};
     document.getElementById("stopIdInput").disabled = false;
     document.getElementById("generateBtn").disabled = false;
+    document.getElementById("randomBtn").disabled = false;
     setStatus(`Loaded ${Object.keys(condensedByStop).length.toLocaleString()} stops.`);
   } catch (err) {
     setStatus("Error loading condensed_stop_times.json: " + err.message);
   }
+}
+
+function randomTimetable() {
+  const stops = Object.keys(condensedByStop).filter(id => {
+    const p = condensedByStop[id];
+    return p && Object.keys(p).length > 0;
+  });
+  const stopId = stops[Math.floor(Math.random() * stops.length)];
+  document.getElementById("stopIdInput").value = stopId;
+  generateTimetable();
 }
 
 function generateTimetable() {
@@ -267,8 +263,6 @@ function renderTable(grouped) {
 
   const tbody = table.createTBody();
   for (let h = 0; h < 24; h++) {
-    const hasData = BUCKETS.some(b => sl[h][b].length > 0);
-    if (!hasData) continue;
     const row = tbody.insertRow();
     const hourCell = row.insertCell();
     hourCell.textContent = formatHour(h);
