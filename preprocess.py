@@ -19,6 +19,15 @@ patterns are given friendly labels (weekday/saturday/sunday/daily); anything
 else is treated as a genuine exception and kept distinct, with the concrete
 dates it covers recorded in the output so the client can label it.
 
+The GTFS stop_id in stop_times.txt/stops.txt is not the number commuters
+actually see or search for (e.g. on PTV signage or the transport.vic.gov.au
+stop page). stops.txt's stop_url column embeds that public-facing number,
+e.g. https://transport.vic.gov.au/stop/10056/?... -> "10056". This script
+extracts that number from stop_url and uses it as the key everywhere in the
+output JSON (stops/stop_names), so the client displays and searches by the
+number people actually recognise, not the internal GTFS stop_id. Stops
+without a parseable stop_url fall back to their GTFS stop_id.
+
 Usage:
     pip install pandas partridge
     python3 preprocess.py
@@ -33,6 +42,7 @@ WEEK_START to build a timetable for a different week.
 
 import datetime
 import json
+import re
 
 import pandas as pd
 import partridge as ptg
@@ -132,15 +142,44 @@ def load_reference_tables():
     return trips
 
 
-def load_stop_names():
+STOP_URL_NUMBER_RE = re.compile(r"/stop/(\d+)/")
+
+
+def load_stop_names_and_display_ids():
+    """
+    Returns (stop_names, display_id) where both are keyed by the internal
+    GTFS stop_id:
+      - stop_names[gtfs_id]  -> stop_name
+      - display_id[gtfs_id]  -> public-facing stop number parsed out of
+                                 stop_url (e.g. ".../stop/10056/..." -> "10056"),
+                                 falling back to gtfs_id itself if stop_url is
+                                 missing or doesn't match the expected pattern.
+    """
     print("Loading stops.txt...")
     stops = pd.read_csv(
         STOPS_PATH,
         dtype=str,
-        usecols=["stop_id", "stop_name"],
+        usecols=["stop_id", "stop_name", "stop_url"],
         encoding="utf-8-sig",   # strips leading BOM if present
     )
-    return stops.set_index("stop_id")["stop_name"].to_dict()
+
+    stop_names = stops.set_index("stop_id")["stop_name"].to_dict()
+
+    display_id = {}
+    unmatched = 0
+    for row in stops.itertuples(index=False):
+        match = STOP_URL_NUMBER_RE.search(row.stop_url) if isinstance(row.stop_url, str) else None
+        if match:
+            display_id[row.stop_id] = match.group(1)
+        else:
+            display_id[row.stop_id] = row.stop_id
+            unmatched += 1
+
+    if unmatched:
+        print(f"  Note: {unmatched:,} stop(s) had no parseable stop_url; "
+              f"falling back to their GTFS stop_id as the display id.")
+
+    return stop_names, display_id
 
 
 def main():
@@ -167,7 +206,7 @@ def main():
     for bits, meta in sorted(day_patterns.items()):
         print(f"  {bits}  {meta['label']}  ({', '.join(meta['dates'])})")
 
-    stop_names = load_stop_names()
+    stop_names, display_id = load_stop_names_and_display_ids()
     trips = load_reference_tables()
 
     print("Collecting unique directions...")
@@ -228,16 +267,37 @@ def main():
         for key in stop_data:
             stop_data[key] = sorted(list(set(stop_data[key])))
 
+    print("Remapping GTFS stop_id -> public-facing (transport.vic.gov.au) stop number...")
+    display_stops = {}
+    display_stop_names = {}
+    collisions = 0
+    for gtfs_id, stop_data in by_stop.items():
+        disp_id = display_id.get(gtfs_id, gtfs_id)
+        if disp_id in display_stops:
+            # Two GTFS stop_ids resolved to the same public-facing number --
+            # merge their departures rather than silently dropping one.
+            collisions += 1
+            existing = display_stops[disp_id]
+            for key, times in stop_data.items():
+                existing[key] = sorted(set(existing.get(key, [])) | set(times))
+        else:
+            display_stops[disp_id] = stop_data
+        display_stop_names[disp_id] = stop_names.get(gtfs_id, disp_id)
+
+    if collisions:
+        print(f"  Note: {collisions:,} GTFS stop(s) shared a display id with another "
+              f"stop and were merged together.")
+
     output = {
         "week_start": WEEK_START.isoformat(),
         "day_patterns": day_patterns,
         "routes": routes_lookup,
         "directions": directions_reverse,
-        "stop_names": stop_names,
-        "stops": by_stop,
+        "stop_names": display_stop_names,
+        "stops": display_stops,
     }
 
-    print(f"Writing {OUTPUT_PATH} ({len(by_stop):,} stops, {rows_outside_week:,} rows skipped as outside the target week)...")
+    print(f"Writing {OUTPUT_PATH} ({len(display_stops):,} stops, {rows_outside_week:,} rows skipped as outside the target week)...")
     with open(OUTPUT_PATH, "w") as f:
         json.dump(output, f, separators=(",", ":"))
 

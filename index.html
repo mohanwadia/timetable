@@ -13,6 +13,23 @@
   button { margin-top: 10px; padding: 5px 14px; font-size: 14px; cursor: pointer; display: block; }
   button:disabled { color: #999; cursor: not-allowed; }
   #status { margin-top: 8px; color: #555; }
+  #searchWrap { position: relative; width: 240px; }
+  #suggestions {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 10;
+    background: #fff;
+    border: 1px solid #ccc;
+    border-top: none;
+    max-height: 240px;
+    overflow-y: auto;
+  }
+  .suggestion-item { padding: 5px 8px; cursor: pointer; font-size: 13px; }
+  .suggestion-item .sug-id { color: #777; font-size: 12px; }
+  .suggestion-item:hover, .suggestion-item.active { background: #eee; }
   #filterPanel { margin-top: 20px; }
   #filterPanel h2 { font-size: 14px; margin-bottom: 6px; }
   .filter-item { margin: 4px 0; }
@@ -32,10 +49,13 @@
 
 <h1>GTFS Timetable</h1>
 
-<label>stop_id
-  <input type="text" id="stopIdInput" placeholder="" disabled />
+<label>Search for a stop
+  <div id="searchWrap">
+    <input type="text" id="stopSearchInput" placeholder="Stop name or stop_id" disabled autocomplete="off" />
+    <div id="suggestions"></div>
+  </div>
 </label>
-<button id="generateBtn" disabled>Generate timetable</button>
+<button id="generateBtn" disabled>Go</button>
 <button id="randomBtn" disabled>Random</button>
 <div id="status">Loading...</div>
 
@@ -53,9 +73,44 @@ let stopNamesLookup = null;
 let currentStopId = null;
 let selectedStems = new Set();
 
-document.getElementById("generateBtn").addEventListener("click", generateTimetable);
+let stopIndex = [];        // [{ id, name }] for stops that have departures
+let selectedStopId = null; // set when a suggestion (or URL/random) is chosen
+let activeSuggestionIndex = -1;
+
+const searchInput = () => document.getElementById("stopSearchInput");
+
+document.getElementById("generateBtn").addEventListener("click", handleGenerateClick);
 document.getElementById("randomBtn").addEventListener("click", randomTimetable);
 window.addEventListener("DOMContentLoaded", loadReferenceData);
+window.addEventListener("popstate", handlePopState);
+
+document.addEventListener("click", (e) => {
+  if (!document.getElementById("searchWrap").contains(e.target)) hideSuggestions();
+});
+
+document.addEventListener("DOMContentLoaded", () => {
+  const input = document.getElementById("stopSearchInput");
+
+  input.addEventListener("input", () => {
+    selectedStopId = null;
+    renderSuggestions(searchStops(input.value));
+  });
+
+  input.addEventListener("keydown", (e) => {
+    const box = document.getElementById("suggestions");
+    const visible = box.style.display === "block";
+    if (e.key === "ArrowDown") {
+      if (visible) { e.preventDefault(); moveSuggestionSelection(1); }
+    } else if (e.key === "ArrowUp") {
+      if (visible) { e.preventDefault(); moveSuggestionSelection(-1); }
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      handleGenerateClick();
+    } else if (e.key === "Escape") {
+      hideSuggestions();
+    }
+  });
+});
 
 function setStatus(msg) {
   document.getElementById("status").textContent = msg;
@@ -71,28 +126,148 @@ async function loadReferenceData() {
     directionsLookup  = data.directions;
     dayPatternsLookup = data.day_patterns || {};
     stopNamesLookup   = data.stop_names || {};
-    document.getElementById("stopIdInput").disabled = false;
+
+    buildStopIndex();
+
+    searchInput().disabled = false;
     document.getElementById("generateBtn").disabled = false;
     document.getElementById("randomBtn").disabled = false;
     setStatus(`Loaded ${Object.keys(condensedByStop).length.toLocaleString()} stops.`);
+
+    loadStopFromUrl();
   } catch (err) {
     setStatus("Error loading condensed_stop_times.json: " + err.message);
   }
 }
 
-function randomTimetable() {
-  const stops = Object.keys(condensedByStop).filter(id => {
-    const p = condensedByStop[id];
-    return p && Object.keys(p).length > 0;
-  });
-  const stopId = stops[Math.floor(Math.random() * stops.length)];
-  document.getElementById("stopIdInput").value = stopId;
-  generateTimetable();
+function buildStopIndex() {
+  stopIndex = Object.keys(condensedByStop)
+    .filter(id => condensedByStop[id] && Object.keys(condensedByStop[id]).length > 0)
+    .map(id => ({ id, name: stopNamesLookup[id] || id }));
 }
 
-function generateTimetable() {
-  const stopId = document.getElementById("stopIdInput").value.trim();
-  if (!stopId) { setStatus("Enter a stop_id."); return; }
+function searchStops(query, limit = 20) {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const results = [];
+  for (const entry of stopIndex) {
+    if (entry.id.toLowerCase().startsWith(q) || entry.name.toLowerCase().includes(q)) {
+      results.push(entry);
+      if (results.length >= limit) break;
+    }
+  }
+  return results;
+}
+
+function renderSuggestions(results) {
+  const box = document.getElementById("suggestions");
+  box.innerHTML = "";
+  activeSuggestionIndex = -1;
+  if (results.length === 0) { box.style.display = "none"; return; }
+  results.forEach(r => {
+    const item = document.createElement("div");
+    item.className = "suggestion-item";
+    item.dataset.stopId = r.id;
+    item.innerHTML = escapeHtml(r.name) + ' <span class="sug-id">(' + escapeHtml(r.id) + ")</span>";
+    item.addEventListener("click", () => selectStop(r.id));
+    box.appendChild(item);
+  });
+  box.style.display = "block";
+}
+
+function hideSuggestions() {
+  const box = document.getElementById("suggestions");
+  box.style.display = "none";
+  box.innerHTML = "";
+  activeSuggestionIndex = -1;
+}
+
+function moveSuggestionSelection(delta) {
+  const items = Array.from(document.querySelectorAll(".suggestion-item"));
+  if (items.length === 0) return;
+  if (activeSuggestionIndex >= 0) items[activeSuggestionIndex].classList.remove("active");
+  activeSuggestionIndex = (activeSuggestionIndex + delta + items.length) % items.length;
+  items[activeSuggestionIndex].classList.add("active");
+  items[activeSuggestionIndex].scrollIntoView({ block: "nearest" });
+}
+
+function handleGenerateClick() {
+  const items = document.querySelectorAll(".suggestion-item");
+  if (activeSuggestionIndex >= 0 && items[activeSuggestionIndex]) {
+    selectStop(items[activeSuggestionIndex].dataset.stopId);
+    return;
+  }
+
+  const raw = searchInput().value.trim();
+  let stopId = selectedStopId;
+
+  if (!stopId || `${stopNamesLookup[stopId] || stopId} (${stopId})` !== raw) {
+    if (condensedByStop[raw]) {
+      stopId = raw;
+    } else {
+      const results = searchStops(raw, 2);
+      stopId = results.length >= 1 ? results[0].id : null;
+    }
+  }
+
+  if (!stopId) {
+    setStatus("No matching stop found. Pick a suggestion, or enter an exact stop_id.");
+    return;
+  }
+  selectStop(stopId);
+}
+
+function selectStop(stopId) {
+  selectedStopId = stopId;
+  const name = stopNamesLookup[stopId] || stopId;
+  searchInput().value = `${name} (${stopId})`;
+  hideSuggestions();
+  updateUrl(stopId);
+  generateTimetable(stopId);
+}
+
+function updateUrl(stopId) {
+  const url = new URL(window.location);
+  url.searchParams.set("stop", stopId);
+  window.history.pushState({ stopId }, "", url);
+}
+
+function loadStopFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const stopId = params.get("stop");
+  if (!stopId) return;
+  if (!condensedByStop[stopId]) {
+    setStatus(`No departures found for stop ${stopId} (from URL).`);
+    return;
+  }
+  selectedStopId = stopId;
+  searchInput().value = `${stopNamesLookup[stopId] || stopId} (${stopId})`;
+  generateTimetable(stopId);
+}
+
+function handlePopState() {
+  const params = new URLSearchParams(window.location.search);
+  const stopId = params.get("stop");
+  if (stopId && condensedByStop && condensedByStop[stopId]) {
+    selectedStopId = stopId;
+    searchInput().value = `${stopNamesLookup[stopId] || stopId} (${stopId})`;
+    generateTimetable(stopId);
+  } else {
+    selectedStopId = null;
+    searchInput().value = "";
+    document.getElementById("results").innerHTML = "";
+    setStatus("Enter a stop name or stop_id.");
+  }
+}
+
+function randomTimetable() {
+  if (stopIndex.length === 0) return;
+  const entry = stopIndex[Math.floor(Math.random() * stopIndex.length)];
+  selectStop(entry.id);
+}
+
+function generateTimetable(stopId) {
+  if (!stopId) { setStatus("Enter a stop name or stop_id."); return; }
 
   document.getElementById("results").innerHTML = "";
 
