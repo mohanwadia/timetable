@@ -4,7 +4,6 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>GTFS Weekly Timetable Builder</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <style>
   body { font-family: Arial, sans-serif; max-width: 900px; margin: 30px auto; padding: 0 16px; color: #1c1c1c; }
   h1 { font-size: 20px; }
@@ -39,10 +38,11 @@
 
 <h1>GTFS Weekly Timetable Builder</h1>
 <p class="note">
-  Expects condensed_stop_times.json (built by preprocess.py), calendar.txt and calendar_dates.txt
-  to sit in the same folder as this HTML file, served over a local web server or GitHub Pages.
-  For local development, run <code>python3 -m http.server</code> in that folder and open
-  this page via <code>http://localhost:8000/...</code>.
+  Expects condensed_stop_times.json (built by preprocess.py) to sit in the same folder as this
+  HTML file, served over a local web server or GitHub Pages. Day-of-week/exception classification
+  is resolved once at preprocessing time, so calendar.txt and calendar_dates.txt don't need to be
+  shipped to the browser. For local development, run <code>python3 -m http.server</code> in that
+  folder and open this page via <code>http://localhost:8000/...</code>.
 </p>
 
 <fieldset>
@@ -62,16 +62,13 @@ const DAY_LABELS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Sat
 
 const FILES = {
   condensedStopTimes: "condensed_stop_times.json",
-  calendar: "calendar.txt",
-  calendarDates: "calendar_dates.txt",
 };
 
 // Populated once on page load, then reused for every generate click.
 let condensedByStop = null;
 let routesLookup = null;
 let directionsLookup = null;
-let calendarById = null;
-let exceptionByServiceDate = null;
+let dayPatterns = null; // bitstring -> { label, dates: ["YYYY-MM-DD", ...] }, from preprocess.py
 
 // Current timetable state
 let currentStopId = null;
@@ -119,47 +116,28 @@ function formatDateDisplay(d) {
 // up front, so every subsequent "Generate" click is instant.
 async function loadReferenceData() {
   try {
-    setStatus("Loading condensed_stop_times.json (this is the one big fetch)...");
+    setStatus("Loading condensed_stop_times.json...");
     const res = await fetch(FILES.condensedStopTimes);
     if (!res.ok) throw new Error(`Could not fetch ${FILES.condensedStopTimes} (${res.status})`);
     const data = await res.json();
 
-    // Unpack the compressed structure
+    // Unpack the compressed structure. day_patterns already encodes, per
+    // bitstring, which of the 7 target-week dates it covers -- this was
+    // resolved once in preprocess.py using partridge (which correctly folds
+    // in calendar_dates.txt exceptions), so there's nothing left to fetch or
+    // classify in the browser.
     condensedByStop = data.stops;
     routesLookup = data.routes;
     directionsLookup = data.directions;
-
-    setStatus("Loading calendar.txt...");
-    const calendarRows = await parseFullFile(FILES.calendar);
-    calendarById = {};
-    calendarRows.forEach(r => { calendarById[r.service_id] = r; });
-
-    setStatus("Loading calendar_dates.txt...");
-    const calendarDateRows = await parseFullFile(FILES.calendarDates);
-    exceptionByServiceDate = {};
-    calendarDateRows.forEach(r => {
-      exceptionByServiceDate[r.service_id + "_" + r.date] = r.exception_type;
-    });
+    dayPatterns = data.day_patterns;
 
     document.getElementById("stopIdInput").disabled = false;
     document.getElementById("generateBtn").disabled = false;
     setStatus(`Ready. Loaded ${Object.keys(condensedByStop).length.toLocaleString()} stops.`);
   } catch (err) {
     console.error(err);
-    setStatus("Error loading reference data: " + err.message + " (check the files are in the same folder and you're running via a local web server, not file://)");
+    setStatus("Error loading reference data: " + err.message + " (check the file is in the same folder and you're running via a local web server, not file://)");
   }
-}
-
-function parseFullFile(path) {
-  return new Promise((resolve, reject) => {
-    Papa.parse(path, {
-      download: true,
-      header: true,
-      skipEmptyLines: true,
-      complete: (results) => resolve(results.data),
-      error: reject,
-    });
-  });
 }
 
 function generateTimetable() {
@@ -240,7 +218,11 @@ function buildFilterPanel(grouped, stems) {
 }
 
 // patterns is an object: "route_id|direction_id|day_pattern" -> [times]
-// Returns grouped patterns by route|direction stem
+// Returns grouped patterns by route|direction stem.
+// Grouping is keyed on the *displayed* route name + direction text, so that
+// two different route_id/direction_id combos that render identically (e.g.
+// same headsign text under different direction_ids) collapse into a single
+// checkbox instead of appearing twice.
 function buildPatternGroups(patterns) {
   const grouped = {};
 
@@ -252,8 +234,9 @@ function buildPatternGroups(patterns) {
     const routeData = routesLookup[routeId];
     const direction = directionsLookup[String(directionId)];
     
-    // Create stem: route|direction (grouped key)
-    const stem = `${routeId}|${directionId}`;
+    // Create stem from the display text, not the raw ids, so identical
+    // route name + direction combos merge together.
+    const stem = `${routeData.name}|${direction}`;
     if (!grouped[stem]) {
       grouped[stem] = {
         route_short_name: routeData.name,
@@ -263,8 +246,21 @@ function buildPatternGroups(patterns) {
       };
     }
     
-    // Store times by day pattern
-    grouped[stem].patterns[dayPattern] = times;
+    // Merge times by day pattern, deduplicating in case multiple
+    // route_id/direction_id combos feed the same display stem.
+    if (!grouped[stem].patterns[dayPattern]) {
+      grouped[stem].patterns[dayPattern] = times.slice();
+    } else {
+      grouped[stem].patterns[dayPattern] = grouped[stem].patterns[dayPattern].concat(times);
+    }
+  }
+
+  // Dedupe and sort times within each merged stem/day pattern.
+  for (const stem in grouped) {
+    const patterns = grouped[stem].patterns;
+    for (const dayPattern in patterns) {
+      patterns[dayPattern] = Array.from(new Set(patterns[dayPattern])).sort();
+    }
   }
 
   return grouped;
@@ -289,48 +285,77 @@ function extractMinutes(timeStr) {
   return mm;
 }
 
-// Build stem-and-leaf data: hour -> day_pattern -> [minutes]
-function buildStemLeafData(grouped, selectedStems) {
-  const stemLeaf = {};
-  
-  // Initialize all 24 hours
-  for (let h = 0; h < 24; h++) {
-    stemLeaf[h] = {
-      weekday: [],
-      saturday: [],
-      sunday: []
-    };
-  }
-  
-  // Populate with selected stems
+// Preferred column order for the well-known weekly patterns; anything else
+// (a genuine calendar_dates.txt exception affecting this specific week) is
+// sorted afterwards by the date it falls on.
+const KNOWN_PATTERN_ORDER = ["1111100", "0000010", "0000001", "1111111"];
+
+// Figures out which day-pattern bitstrings actually appear among the
+// currently-selected route/direction stems, so we only render columns that
+// have real data (e.g. a stop with no Sunday service gets no Sunday column).
+function collectActivePatterns(grouped, selectedStems) {
+  const bitsSet = new Set();
   for (const stem of selectedStems) {
     if (!grouped[stem]) continue;
-    
+    for (const bits in grouped[stem].patterns) bitsSet.add(bits);
+  }
+  const bitsList = Array.from(bitsSet);
+  bitsList.sort((a, b) => {
+    const ai = KNOWN_PATTERN_ORDER.indexOf(a);
+    const bi = KNOWN_PATTERN_ORDER.indexOf(b);
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
+    const ad = (dayPatterns[a] && dayPatterns[a].dates[0]) || "";
+    const bd = (dayPatterns[b] && dayPatterns[b].dates[0]) || "";
+    return ad.localeCompare(bd);
+  });
+  return bitsList;
+}
+
+// Human-readable column header for a day-pattern bitstring, using the
+// label/dates metadata preprocess.py computed via partridge.
+function patternHeaderLabel(bits) {
+  const meta = dayPatterns[bits];
+  if (!meta) return bits;
+  if (meta.label === "weekday") return "Weekday (M-F)";
+  if (meta.label === "saturday") return "Saturday";
+  if (meta.label === "sunday") return "Sunday";
+  if (meta.label === "daily") return "Daily";
+  // Genuine exception pattern -- show it with the concrete date(s) it covers
+  // so it's clear this differs from the regular weekly service.
+  const dateStr = meta.dates.map(d => formatDateDisplay(new Date(d + "T00:00:00"))).join(", ");
+  return `${meta.label} (${dateStr})`;
+}
+
+// Build stem-and-leaf data: hour -> day_pattern_bits -> [minutes]
+function buildStemLeafData(grouped, selectedStems, activeBits) {
+  const stemLeaf = {};
+
+  for (let h = 0; h < 24; h++) {
+    stemLeaf[h] = {};
+    activeBits.forEach(bits => { stemLeaf[h][bits] = []; });
+  }
+
+  for (const stem of selectedStems) {
+    if (!grouped[stem]) continue;
+
     const data = grouped[stem];
-    for (const dayPattern in data.patterns) {
-      const times = data.patterns[dayPattern];
+    for (const bits in data.patterns) {
+      if (!(bits in stemLeaf[0])) continue;
+      const times = data.patterns[bits];
       times.forEach(time => {
         const hour = getHourBucket(time);
         const minutes = extractMinutes(time);
-        
-        if (dayPattern === 'weekday') {
-          stemLeaf[hour].weekday.push(minutes);
-        } else if (dayPattern === 'saturday') {
-          stemLeaf[hour].saturday.push(minutes);
-        } else if (dayPattern === 'sunday') {
-          stemLeaf[hour].sunday.push(minutes);
-        }
+        stemLeaf[hour][bits].push(minutes);
       });
     }
   }
-  
-  // Sort minutes within each hour/day
+
   for (let h = 0; h < 24; h++) {
-    stemLeaf[h].weekday.sort();
-    stemLeaf[h].saturday.sort();
-    stemLeaf[h].sunday.sort();
+    activeBits.forEach(bits => stemLeaf[h][bits].sort());
   }
-  
+
   return stemLeaf;
 }
 
@@ -353,54 +378,58 @@ function renderStemLeafTable(grouped, stopId) {
     return;
   }
   
-  const stemLeaf = buildStemLeafData(grouped, selectedStems);
-  
+  const activeBits = collectActivePatterns(grouped, selectedStems);
+
+  if (activeBits.length === 0) {
+    const p = document.createElement("p");
+    p.style.fontSize = "13px";
+    p.style.color = "#777";
+    p.style.marginTop = "20px";
+    p.textContent = "No service during this week for the selected routes/directions.";
+    container.appendChild(p);
+    return;
+  }
+
+  const stemLeaf = buildStemLeafData(grouped, selectedStems, activeBits);
+
   const table = document.createElement("table");
   table.className = "stem-leaf-table";
-  
-  // Build header
+
+  // Build header: one column per day-pattern actually present in the
+  // selected data (weekday/Sat/Sun normally, plus any genuine exceptions).
   const thead = document.createElement("thead");
-  thead.innerHTML = `
-    <tr>
-      <th>Hour</th>
-      <th>Weekday (M-F)</th>
-      <th>Saturday</th>
-      <th>Sunday</th>
-    </tr>
-  `;
+  const headRow = document.createElement("tr");
+  const hourTh = document.createElement("th");
+  hourTh.textContent = "Hour";
+  headRow.appendChild(hourTh);
+  activeBits.forEach(bits => {
+    const th = document.createElement("th");
+    th.textContent = patternHeaderLabel(bits);
+    headRow.appendChild(th);
+  });
+  thead.appendChild(headRow);
   table.appendChild(thead);
-  
+
   // Build body: 24 rows for each hour
   const tbody = document.createElement("tbody");
   for (let h = 0; h < 24; h++) {
     const row = document.createElement("tr");
-    
+
     const hourCell = document.createElement("td");
     hourCell.textContent = formatHourLabel(h);
     row.appendChild(hourCell);
-    
-    // Weekday
-    const weekdayCell = document.createElement("td");
-    weekdayCell.className = "stem-leaf-cell";
-    weekdayCell.textContent = stemLeaf[h].weekday.join(", ");
-    row.appendChild(weekdayCell);
-    
-    // Saturday
-    const saturdayCell = document.createElement("td");
-    saturdayCell.className = "stem-leaf-cell";
-    saturdayCell.textContent = stemLeaf[h].saturday.join(", ");
-    row.appendChild(saturdayCell);
-    
-    // Sunday
-    const sundayCell = document.createElement("td");
-    sundayCell.className = "stem-leaf-cell";
-    sundayCell.textContent = stemLeaf[h].sunday.join(", ");
-    row.appendChild(sundayCell);
-    
+
+    activeBits.forEach(bits => {
+      const cell = document.createElement("td");
+      cell.className = "stem-leaf-cell";
+      cell.textContent = stemLeaf[h][bits].join(", ");
+      row.appendChild(cell);
+    });
+
     tbody.appendChild(row);
   }
   table.appendChild(tbody);
-  
+
   container.appendChild(table);
 }
 
