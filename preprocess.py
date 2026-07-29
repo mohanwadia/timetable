@@ -44,7 +44,7 @@ ROUTES_PATH = GTFS_DIR + "routes.txt"
 OUTPUT_PATH = "condensed_stop_times.json"
 
 # Monday of the target week. Must match getCurrentWeekDates() in index.html.
-WEEK_START = datetime.date(2026, 3, 2)
+WEEK_START = datetime.date(2026, 7, 27)
 WEEK_DATES = [WEEK_START + datetime.timedelta(days=i) for i in range(7)]
 DAY_KEYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
@@ -133,6 +133,23 @@ def load_reference_tables():
 
 def main():
     service_bitstring = build_service_bitstrings()
+
+    if not service_bitstring:
+        print("ERROR: No service IDs found for the target week "
+              f"({WEEK_START} to {WEEK_DATES[-1]}).")
+        print("       The GTFS feed may not cover this date range.")
+        print("       Checking what dates partridge can actually see...")
+        all_dates = ptg.read_service_ids_by_date(GTFS_DIR)
+        if all_dates:
+            dates = sorted(all_dates.keys())
+            print(f"       Feed covers: {dates[0]} to {dates[-1]}")
+            print(f"       Fix: set WEEK_START to a Monday within that range and re-run.")
+        else:
+            print("       partridge found NO dates at all.")
+            print("       Check that GTFS_DIR points to a valid feed with calendar.txt "
+                  "or calendar_dates.txt.")
+        raise SystemExit(1)
+
     day_patterns = build_pattern_metadata(service_bitstring)
     print(f"Found {len(day_patterns)} distinct service pattern(s) across the target week:")
     for bits, meta in sorted(day_patterns.items()):
