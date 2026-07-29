@@ -41,6 +41,7 @@ GTFS_DIR = "../gtfs/4/google_transit/"
 STOP_TIMES_PATH = GTFS_DIR + "stop_times.txt"
 TRIPS_PATH = GTFS_DIR + "trips.txt"
 ROUTES_PATH = GTFS_DIR + "routes.txt"
+STOPS_PATH = GTFS_DIR + "stops.txt"
 OUTPUT_PATH = "condensed_stop_times.json"
 
 # Monday of the target week. Must match getCurrentWeekDates() in index.html.
@@ -131,6 +132,17 @@ def load_reference_tables():
     return trips
 
 
+def load_stop_names():
+    print("Loading stops.txt...")
+    stops = pd.read_csv(
+        STOPS_PATH,
+        dtype=str,
+        usecols=["stop_id", "stop_name"],
+        encoding="utf-8-sig",   # strips leading BOM if present
+    )
+    return stops.set_index("stop_id")["stop_name"].to_dict()
+
+
 def main():
     service_bitstring = build_service_bitstrings()
 
@@ -155,6 +167,7 @@ def main():
     for bits, meta in sorted(day_patterns.items()):
         print(f"  {bits}  {meta['label']}  ({', '.join(meta['dates'])})")
 
+    stop_names = load_stop_names()
     trips = load_reference_tables()
 
     print("Collecting unique directions...")
@@ -220,6 +233,7 @@ def main():
         "day_patterns": day_patterns,
         "routes": routes_lookup,
         "directions": directions_reverse,
+        "stop_names": stop_names,
         "stops": by_stop,
     }
 

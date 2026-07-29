@@ -49,6 +49,7 @@ let condensedByStop = null;
 let routesLookup = null;
 let directionsLookup = null;
 let dayPatternsLookup = null;
+let stopNamesLookup = null;
 let currentStopId = null;
 let selectedStems = new Set();
 
@@ -69,6 +70,7 @@ async function loadReferenceData() {
     routesLookup      = data.routes;
     directionsLookup  = data.directions;
     dayPatternsLookup = data.day_patterns || {};
+    stopNamesLookup   = data.stop_names || {};
     document.getElementById("stopIdInput").disabled = false;
     document.getElementById("generateBtn").disabled = false;
     document.getElementById("randomBtn").disabled = false;
@@ -105,11 +107,20 @@ function generateTimetable() {
   const stems = Object.keys(grouped).sort();
   selectedStems = new Set(stems);
 
+  const stopName = stopNamesLookup[stopId];
+  const stopLabel = stopName ? `${stopName}` : stopId;
+
+  const nameEl = document.createElement("p");
+  nameEl.id = "stopName";
+  nameEl.style.cssText = "font-size:16px; font-weight:bold; margin:16px 0 4px;";
+  nameEl.textContent = stopLabel;
+  document.getElementById("results").appendChild(nameEl);
+
   buildFilterPanel(grouped, stems);
   renderTable(grouped);
 
   const total = Object.values(patterns).reduce((s, e) => s + e.length, 0);
-  setStatus(`Stop ${stopId}: ${stems.length} route/direction(s), ${total} departures.`);
+  setStatus(`${stems.length} route/direction(s), ${total} departures.`);
 }
 
 function buildFilterPanel(grouped, stems) {
@@ -137,7 +148,7 @@ function buildFilterPanel(grouped, stems) {
 
     const lbl = document.createElement("label");
     lbl.htmlFor = "stem-" + stem;
-    lbl.textContent = " " + data.route_short_name + " — " + data.direction;
+    lbl.textContent = " " + data.route_short_name + " " + data.direction;
 
     item.appendChild(cb);
     item.appendChild(lbl);
