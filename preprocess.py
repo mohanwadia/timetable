@@ -28,6 +28,20 @@ output JSON (stops/stop_names), so the client displays and searches by the
 number people actually recognise, not the internal GTFS stop_id. Stops
 without a parseable stop_url fall back to their GTFS stop_id.
 
+Many routes run "short workings" -- trips that share a route_id and
+direction_id with the route's main service but terminate early at a
+different headsign (e.g. route 902 mostly runs to Airport West Shopping
+Centre, but some trips only go as far as Chelsea Railway Station). Grouping
+strictly by headsign (as earlier versions did) gave each of these its own
+checkbox/column in the client, which is noisy and makes it hard to see the
+route as a whole. Instead, for each (route_id, direction_id) pair, the
+headsign belonging to the trips that travel the furthest (by stop_times row
+count, as a proxy for distance covered) is treated as that direction's
+canonical/full-length headsign. Every other headsign sharing that route +
+direction is folded into the canonical one, with each of its departure times
+tagged with a "Terminates at <headsign>" note that the client renders as a
+superscript footnote rather than a separate row/column.
+
 Usage:
     pip install pandas partridge
     python3 preprocess.py
@@ -119,6 +133,7 @@ def load_reference_tables():
         dtype=str,
         usecols=["trip_id", "route_id", "service_id", "direction_id", "trip_headsign"],
     )
+    trips["direction_id"] = trips["direction_id"].fillna("")
 
     print("Loading routes.txt...")
     routes = pd.read_csv(
@@ -130,16 +145,64 @@ def load_reference_tables():
     trips = trips.merge(routes, on="route_id", how="left")
 
     headsign = trips["trip_headsign"].fillna("").str.strip()
-    fallback = "Direction " + trips["direction_id"].fillna("")
+    fallback = "Direction " + trips["direction_id"]
     trips["direction"] = headsign.where(headsign != "", fallback)
 
     trips["route_short_name"] = trips["route_short_name"].fillna(trips["route_id"])
     trips["route_color"] = trips["route_color"].fillna("075AAA")
 
     trips = trips.set_index("trip_id")[
-        ["route_id", "route_short_name", "route_color", "direction", "service_id"]
+        ["route_id", "direction_id", "route_short_name", "route_color", "direction", "service_id"]
     ]
     return trips
+
+
+def compute_trip_lengths():
+    """
+    Counts stop_times rows per trip_id, used as a proxy for how far a trip
+    travels along its route so short workings (which cover fewer stops) can
+    be told apart from the full-length service. Reads stop_times.txt in
+    chunks and only the trip_id column, so this stays cheap even on large
+    feeds.
+    """
+    print("Counting stops per trip (to identify short workings)...")
+    counts = {}
+    reader = pd.read_csv(STOP_TIMES_PATH, dtype=str, usecols=["trip_id"], chunksize=CHUNK_SIZE)
+    for chunk in reader:
+        for trip_id, c in chunk["trip_id"].value_counts().items():
+            counts[trip_id] = counts.get(trip_id, 0) + int(c)
+    return counts
+
+
+def compute_canonical_headsigns(trips, trip_lengths):
+    """
+    For each (route_id, direction_id) pair, picks the headsign whose trips
+    travel the furthest on average (most stop_times rows) as that
+    direction's canonical/full-length headsign. Every other headsign sharing
+    the same route_id + direction_id is a short working of it.
+
+    Returns (canonical, short_working_count) where:
+      canonical            -> { (route_id, direction_id): canonical_headsign_text }
+      short_working_count  -> number of distinct headsigns folded into some
+                               other canonical headsign (for logging)
+    """
+    df = trips.reset_index()[["trip_id", "route_id", "direction_id", "direction"]].copy()
+    df["stop_count"] = df["trip_id"].map(trip_lengths).fillna(0)
+
+    avg_len = (
+        df.groupby(["route_id", "direction_id", "direction"])["stop_count"]
+        .mean()
+        .reset_index()
+    )
+
+    canonical = {}
+    short_working_count = 0
+    for (route_id, direction_id), sub in avg_len.groupby(["route_id", "direction_id"]):
+        best_row = sub.loc[sub["stop_count"].idxmax()]
+        canonical[(route_id, direction_id)] = best_row["direction"]
+        short_working_count += len(sub) - 1
+
+    return canonical, short_working_count
 
 
 STOP_URL_NUMBER_RE = re.compile(r"/stop/(\d+)/")
@@ -182,6 +245,28 @@ def load_stop_names_and_display_ids():
     return stop_names, display_id
 
 
+def finalize_entries(raw_entries):
+    """
+    raw_entries: list of (time, note_or_None) tuples collected while
+    streaming stop_times.txt.
+
+    Dedupes by exact departure time, merging any notes attached to that time
+    (e.g. "Terminates at X" for a short working), and returns the format the
+    client expects: a bare "HH:MM:SS" string when there are no notes, or
+    [time, [note, ...]] when there are.
+    """
+    by_time = {}
+    for time, note in raw_entries:
+        notes = by_time.setdefault(time, set())
+        if note:
+            notes.add(note)
+    result = []
+    for time in sorted(by_time):
+        notes = sorted(by_time[time])
+        result.append([time, notes] if notes else time)
+    return result
+
+
 def main():
     service_bitstring = build_service_bitstrings()
 
@@ -209,8 +294,14 @@ def main():
     stop_names, display_id = load_stop_names_and_display_ids()
     trips = load_reference_tables()
 
-    print("Collecting unique directions...")
-    directions_set = set(trips["direction"].unique())
+    trip_lengths = compute_trip_lengths()
+    canonical_headsigns, short_working_count = compute_canonical_headsigns(trips, trip_lengths)
+    print(f"Found {short_working_count} short-working headsign(s) across "
+          f"{len(canonical_headsigns)} route/direction group(s); folding them into "
+          f"their parent route with a 'Terminates at' footnote.")
+
+    print("Collecting canonical directions...")
+    directions_set = set(canonical_headsigns.values())
     directions_list = sorted(directions_set)
     directions_lookup = {d: i for i, d in enumerate(directions_list)}
     directions_reverse = {str(i): d for i, d in enumerate(directions_list)}
@@ -245,7 +336,9 @@ def main():
                     continue
 
                 route_id = row.route_id
-                direction_id = directions_lookup[row.direction]
+                canonical = canonical_headsigns.get((route_id, row.direction_id), row.direction)
+                direction_index = directions_lookup[canonical]
+                note = None if row.direction == canonical else f"Terminates at {row.direction}"
                 time = row.departure_time
 
                 if route_id not in routes_lookup:
@@ -254,18 +347,11 @@ def main():
                         "color": row.route_color,
                     }
 
-                key = f"{route_id}|{direction_id}|{bits}"
-                if key not in stop_data:
-                    stop_data[key] = []
-
-                stop_data[key].append(time)
+                key = f"{route_id}|{direction_index}|{bits}"
+                stop_data.setdefault(key, []).append((time, note))
 
         rows_processed += len(chunk)
         print(f"  {rows_processed:,} stop_times rows processed...")
-
-    for stop_data in by_stop.values():
-        for key in stop_data:
-            stop_data[key] = sorted(list(set(stop_data[key])))
 
     print("Remapping GTFS stop_id -> public-facing (transport.vic.gov.au) stop number...")
     display_stops = {}
@@ -278,8 +364,8 @@ def main():
             # merge their departures rather than silently dropping one.
             collisions += 1
             existing = display_stops[disp_id]
-            for key, times in stop_data.items():
-                existing[key] = sorted(set(existing.get(key, [])) | set(times))
+            for key, entries in stop_data.items():
+                existing.setdefault(key, []).extend(entries)
         else:
             display_stops[disp_id] = stop_data
         display_stop_names[disp_id] = stop_names.get(gtfs_id, disp_id)
@@ -287,6 +373,10 @@ def main():
     if collisions:
         print(f"  Note: {collisions:,} GTFS stop(s) shared a display id with another "
               f"stop and were merged together.")
+
+    for stop_data in display_stops.values():
+        for key in stop_data:
+            stop_data[key] = finalize_entries(stop_data[key])
 
     output = {
         "week_start": WEEK_START.isoformat(),
