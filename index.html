@@ -255,7 +255,7 @@ function previewStop(stopId) {
 
       const lbl = document.createElement("span");
       lbl.className = "direction-label";
-      lbl.textContent = data.route_short_name + " — " + data.direction;
+      lbl.textContent = data.route_short_name + " " + data.direction;
 
       const btn = document.createElement("button");
       const isAdded = selectedItems.some(i => i.stopId === stopId && i.stem === stem);
