@@ -35,9 +35,9 @@ Centre, but some trips only go as far as Chelsea Railway Station). Grouping
 strictly by headsign (as earlier versions did) gave each of these its own
 checkbox/column in the client, which is noisy and makes it hard to see the
 route as a whole. Instead, for each (route_id, direction_id) pair, the
-headsign belonging to the trips that travel the furthest (by stop_times row
-count, as a proxy for distance covered) is treated as that direction's
-canonical/full-length headsign. Every other headsign sharing that route +
+headsign with the most scheduled trips (i.e. the one that actually runs most
+often) is treated as that direction's canonical headsign and shown as the
+checkbox label. Every other, less-frequent headsign sharing that route +
 direction is folded into the canonical one, with each of its departure times
 tagged with a "Terminates at <headsign>" note that the client renders as a
 superscript footnote rather than a separate row/column.
@@ -157,48 +157,29 @@ def load_reference_tables():
     return trips
 
 
-def compute_trip_lengths():
+def compute_canonical_headsigns(trips):
     """
-    Counts stop_times rows per trip_id, used as a proxy for how far a trip
-    travels along its route so short workings (which cover fewer stops) can
-    be told apart from the full-length service. Reads stop_times.txt in
-    chunks and only the trip_id column, so this stays cheap even on large
-    feeds.
-    """
-    print("Counting stops per trip (to identify short workings)...")
-    counts = {}
-    reader = pd.read_csv(STOP_TIMES_PATH, dtype=str, usecols=["trip_id"], chunksize=CHUNK_SIZE)
-    for chunk in reader:
-        for trip_id, c in chunk["trip_id"].value_counts().items():
-            counts[trip_id] = counts.get(trip_id, 0) + int(c)
-    return counts
-
-
-def compute_canonical_headsigns(trips, trip_lengths):
-    """
-    For each (route_id, direction_id) pair, picks the headsign whose trips
-    travel the furthest on average (most stop_times rows) as that
-    direction's canonical/full-length headsign. Every other headsign sharing
-    the same route_id + direction_id is a short working of it.
+    For each (route_id, direction_id) pair, picks the headsign with the most
+    scheduled trips (i.e. the one that actually runs most often) as that
+    direction's canonical headsign. Every other, less-frequent headsign
+    sharing the same route_id + direction_id is a short working of it.
 
     Returns (canonical, short_working_count) where:
       canonical            -> { (route_id, direction_id): canonical_headsign_text }
       short_working_count  -> number of distinct headsigns folded into some
                                other canonical headsign (for logging)
     """
-    df = trips.reset_index()[["trip_id", "route_id", "direction_id", "direction"]].copy()
-    df["stop_count"] = df["trip_id"].map(trip_lengths).fillna(0)
-
-    avg_len = (
-        df.groupby(["route_id", "direction_id", "direction"])["stop_count"]
-        .mean()
-        .reset_index()
+    trip_counts = (
+        trips.reset_index()
+        .groupby(["route_id", "direction_id", "direction"])
+        .size()
+        .reset_index(name="trip_count")
     )
 
     canonical = {}
     short_working_count = 0
-    for (route_id, direction_id), sub in avg_len.groupby(["route_id", "direction_id"]):
-        best_row = sub.loc[sub["stop_count"].idxmax()]
+    for (route_id, direction_id), sub in trip_counts.groupby(["route_id", "direction_id"]):
+        best_row = sub.loc[sub["trip_count"].idxmax()]
         canonical[(route_id, direction_id)] = best_row["direction"]
         short_working_count += len(sub) - 1
 
@@ -294,8 +275,7 @@ def main():
     stop_names, display_id = load_stop_names_and_display_ids()
     trips = load_reference_tables()
 
-    trip_lengths = compute_trip_lengths()
-    canonical_headsigns, short_working_count = compute_canonical_headsigns(trips, trip_lengths)
+    canonical_headsigns, short_working_count = compute_canonical_headsigns(trips)
     print(f"Found {short_working_count} short-working headsign(s) across "
           f"{len(canonical_headsigns)} route/direction group(s); folding them into "
           f"their parent route with a 'Terminates at' footnote.")
