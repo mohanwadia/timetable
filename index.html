@@ -484,11 +484,33 @@ function buildPatternGroups(patterns) {
     if (!grouped[stem]) {
       grouped[stem] = { route_short_name: routeData.name, route_color: routeData.color, direction, patterns: {} };
     }
-    bitsToDisplayBuckets(bits).forEach(bucket => {
-      grouped[stem].patterns[bucket] = grouped[stem].patterns[bucket]
-        ? grouped[stem].patterns[bucket].concat(entries)
-        : entries.slice();
+
+    // Partition entries into same-day (hour < 24) and overnight (hour >= 24).
+    // GTFS allows hours beyond 23 to represent post-midnight departures that
+    // still belong to the *previous* service day's trip (e.g. 25:30 = 1:30 AM
+    // the next calendar day).  Route overnight entries to the next day's bucket
+    // so they appear in the correct column of the timetable.
+    const sameDayEntries = [];
+    const nextDayEntries = [];
+    entries.forEach(e => {
+      (parseInt(entryTime(e).split(":")[0], 10) >= 24 ? nextDayEntries : sameDayEntries).push(e);
     });
+
+    if (sameDayEntries.length) {
+      bitsToDisplayBuckets(bits).forEach(bucket => {
+        grouped[stem].patterns[bucket] = grouped[stem].patterns[bucket]
+          ? grouped[stem].patterns[bucket].concat(sameDayEntries)
+          : sameDayEntries.slice();
+      });
+    }
+
+    if (nextDayEntries.length) {
+      bitsToNextDayBuckets(bits).forEach(bucket => {
+        grouped[stem].patterns[bucket] = grouped[stem].patterns[bucket]
+          ? grouped[stem].patterns[bucket].concat(nextDayEntries)
+          : nextDayEntries.slice();
+      });
+    }
   }
   for (const stem in grouped) {
     const p = grouped[stem].patterns;
@@ -519,6 +541,15 @@ function bitsToDisplayBuckets(bits) {
   if (bits[5] === "1") out.add("saturday");
   if (bits[6] === "1") out.add("sunday");
   return Array.from(out);
+}
+
+// For GTFS times >= 24:00 (overnight services), the physical departure is on
+// the next calendar day.  Compute which display bucket(s) that falls into by
+// rotating the 7-char bitstring one position forward:
+//   Mon→Tue, Tue→Wed, …, Fri→Sat, Sat→Sun, Sun→Mon
+function bitsToNextDayBuckets(bits) {
+  const shifted = bits[6] + bits.slice(0, 6);
+  return bitsToDisplayBuckets(shifted);
 }
 
 function buildStemHourGrid(grouped, stems) {
