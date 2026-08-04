@@ -26,13 +26,11 @@
     max-height: 260px; overflow-y: auto;
   }
   .suggestion-item { padding: 5px 8px; cursor: pointer; font-size: 13px; }
-  .suggestion-item .sug-id { color: #777; font-size: 12px; }
   .suggestion-item:hover, .suggestion-item.active { background: #eee; }
 
   /* Stop preview */
   #stopPreview { margin-top: 16px; display: none; }
   #stopPreview h2 { font-size: 13px; font-weight: bold; margin: 0 0 6px; }
-  .preview-stop-id { color: #666; font-weight: normal; margin-left: 4px; }
   .direction-row { display: flex; align-items: baseline; gap: 8px; padding: 3px 0; font-size: 13px; }
   .direction-label { flex: 1; }
   .add-btn {
@@ -77,7 +75,7 @@
   <div id="leftPane">
     <label>Search for a stop
       <div id="searchWrap">
-        <input type="text" id="stopSearchInput" placeholder="Stop name or stop_id" disabled autocomplete="off" />
+        <input type="text" id="stopSearchInput" placeholder="Stop name" disabled autocomplete="off" />
         <div id="suggestions"></div>
       </div>
     </label>
@@ -182,7 +180,7 @@ function searchStops(query, limit = 20) {
   if (!q) return [];
   const results = [];
   for (const entry of stopIndex) {
-    if (entry.id.toLowerCase().startsWith(q) || entry.name.toLowerCase().includes(q)) {
+    if (entry.name.toLowerCase().includes(q)) {
       results.push(entry);
       if (results.length >= limit) break;
     }
@@ -199,7 +197,7 @@ function renderSuggestions(results) {
     const item = document.createElement("div");
     item.className = "suggestion-item";
     item.dataset.stopId = r.id;
-    item.innerHTML = escapeHtml(r.name) + ' <span class="sug-id">(' + escapeHtml(r.id) + ")</span>";
+    item.textContent = r.name;
     item.addEventListener("click", () => previewStop(r.id));
     box.appendChild(item);
   });
@@ -238,8 +236,7 @@ function previewStop(stopId) {
   previewGrouped = buildPatternGroups(condensedByStop[stopId] || {});
   const stems = Object.keys(previewGrouped).sort();
 
-  document.getElementById("previewName").innerHTML =
-    escapeHtml(name) + '<span class="preview-stop-id">(' + escapeHtml(stopId) + ')</span>';
+  document.getElementById("previewName").textContent = name;
 
   const container = document.getElementById("previewDirections");
   container.innerHTML = "";
@@ -363,7 +360,7 @@ function renderSelectionsPanel() {
     row.className = "sel-item";
     row.innerHTML =
       escapeHtml(routeName + " " + direction) +
-      ' <span class="sel-item-stop">' + escapeHtml(stopName) + ' (' + escapeHtml(stopId) + ')</span>';
+      ' <span class="sel-item-stop">' + escapeHtml(stopName) + '</span>';
 
     const removeBtn = document.createElement("button");
     removeBtn.className = "sel-remove";
@@ -484,18 +481,14 @@ function buildPatternGroups(patterns) {
     if (!grouped[stem]) {
       grouped[stem] = { route_short_name: routeData.name, route_color: routeData.color, direction, patterns: {} };
     }
-
     // Partition entries into same-day (hour < 24) and overnight (hour >= 24).
-    // GTFS allows hours beyond 23 to represent post-midnight departures that
-    // still belong to the *previous* service day's trip (e.g. 25:30 = 1:30 AM
-    // the next calendar day).  Route overnight entries to the next day's bucket
-    // so they appear in the correct column of the timetable.
+    // GTFS allows hours beyond 23 for post-midnight departures that still
+    // belong to the previous service day's trip (e.g. 25:30 = 1:30 AM next day).
     const sameDayEntries = [];
     const nextDayEntries = [];
     entries.forEach(e => {
       (parseInt(entryTime(e).split(":")[0], 10) >= 24 ? nextDayEntries : sameDayEntries).push(e);
     });
-
     if (sameDayEntries.length) {
       bitsToDisplayBuckets(bits).forEach(bucket => {
         grouped[stem].patterns[bucket] = grouped[stem].patterns[bucket]
@@ -503,7 +496,6 @@ function buildPatternGroups(patterns) {
           : sameDayEntries.slice();
       });
     }
-
     if (nextDayEntries.length) {
       bitsToNextDayBuckets(bits).forEach(bucket => {
         grouped[stem].patterns[bucket] = grouped[stem].patterns[bucket]

@@ -1,67 +1,10 @@
-"""
-Condenses stop_times.txt + trips.txt + routes.txt into a pattern-based JSON file
-for the GTFS Weekly Timetable Builder.
-
-Unlike the previous version, day-of-week classification is no longer done by
-hand-parsing calendar.txt (which ignored calendar_dates.txt exceptions
-entirely). Instead this uses `partridge` (https://github.com/remix/partridge)
-to resolve, date-by-date, exactly which service_ids are actually running --
-correctly folding in calendar_dates.txt additions/removals. This matters
-because the timetable is for one *specific* week (see WEEK_START below), and
-a service exception on any of those 7 dates (a public holiday, a one-off
-timetable change, etc.) would previously have been silently ignored even
-though calendar_dates.txt was being shipped to the browser for exactly that
-purpose.
-
-Each route/direction/day-pattern key is now a 7-character bitstring, one
-character per Mon..Sun of the target week (1 = service runs that day). Common
-patterns are given friendly labels (weekday/saturday/sunday/daily); anything
-else is treated as a genuine exception and kept distinct, with the concrete
-dates it covers recorded in the output so the client can label it.
-
-The GTFS stop_id in stop_times.txt/stops.txt is not the number commuters
-actually see or search for (e.g. on PTV signage or the transport.vic.gov.au
-stop page). stops.txt's stop_url column embeds that public-facing number,
-e.g. https://transport.vic.gov.au/stop/10056/?... -> "10056". This script
-extracts that number from stop_url and uses it as the key everywhere in the
-output JSON (stops/stop_names), so the client displays and searches by the
-number people actually recognise, not the internal GTFS stop_id. Stops
-without a parseable stop_url fall back to their GTFS stop_id.
-
-Many routes run "short workings" -- trips that share a route_id and
-direction_id with the route's main service but terminate early at a
-different headsign (e.g. route 902 mostly runs to Airport West Shopping
-Centre, but some trips only go as far as Chelsea Railway Station). Grouping
-strictly by headsign (as earlier versions did) gave each of these its own
-checkbox/column in the client, which is noisy and makes it hard to see the
-route as a whole. Instead, for each (route_id, direction_id) pair, the
-headsign with the most scheduled trips (i.e. the one that actually runs most
-often) is treated as that direction's canonical headsign and shown as the
-checkbox label. Every other, less-frequent headsign sharing that route +
-direction is folded into the canonical one, with each of its departure times
-tagged with a "Terminates at <headsign>" note that the client renders as a
-superscript footnote rather than a separate row/column.
-
-Usage:
-    pip install pandas partridge
-    python3 preprocess.py
-
-Expects a GTFS feed directory (stop_times.txt, trips.txt, routes.txt,
-calendar.txt, calendar_dates.txt) at GTFS_DIR. Writes
-condensed_stop_times.json in the same folder as this script.
-
-Re-run this whenever you download an updated GTFS feed, or when you change
-WEEK_START to build a timetable for a different week.
-"""
-
 import datetime
 import json
 import re
-
 import pandas as pd
 import partridge as ptg
 
-GTFS_DIR = "../gtfs/4/google_transit/"
+GTFS_DIR = "../PT/gtfs/4/google_transit/"
 STOP_TIMES_PATH = GTFS_DIR + "stop_times.txt"
 TRIPS_PATH = GTFS_DIR + "trips.txt"
 ROUTES_PATH = GTFS_DIR + "routes.txt"
@@ -333,16 +276,17 @@ def main():
         rows_processed += len(chunk)
         print(f"  {rows_processed:,} stop_times rows processed...")
 
+    # ── Pass 1: GTFS stop_id → public-facing display ID ──────────────────────
     print("Remapping GTFS stop_id -> public-facing (transport.vic.gov.au) stop number...")
     display_stops = {}
     display_stop_names = {}
-    collisions = 0
+    disp_id_collisions = 0
     for gtfs_id, stop_data in by_stop.items():
         disp_id = display_id.get(gtfs_id, gtfs_id)
         if disp_id in display_stops:
             # Two GTFS stop_ids resolved to the same public-facing number --
             # merge their departures rather than silently dropping one.
-            collisions += 1
+            disp_id_collisions += 1
             existing = display_stops[disp_id]
             for key, entries in stop_data.items():
                 existing.setdefault(key, []).extend(entries)
@@ -350,24 +294,48 @@ def main():
             display_stops[disp_id] = stop_data
         display_stop_names[disp_id] = stop_names.get(gtfs_id, disp_id)
 
-    if collisions:
-        print(f"  Note: {collisions:,} GTFS stop(s) shared a display id with another "
-              f"stop and were merged together.")
+    if disp_id_collisions:
+        print(f"  Note: {disp_id_collisions:,} GTFS stop(s) shared a display id with "
+              f"another stop and were merged together.")
 
-    for stop_data in display_stops.values():
+    # ── Pass 2: display ID → stop_name (merge same-named stops) ──────────────
+    # Stops on opposite sides of the street share an identical stop_name in the
+    # PTV GTFS feed.  Pool their raw (time, note) entry lists before finalising
+    # so that deduplication runs across both physical stops at once.
+    print("Merging stops with identical names (e.g. opposite sides of the street)...")
+    name_stops = {}       # stop_name -> merged raw-entry dict
+    name_merged_count = 0
+    for disp_id, stop_data in display_stops.items():
+        name = display_stop_names[disp_id]
+        if name in name_stops:
+            name_merged_count += 1
+            existing = name_stops[name]
+            for key, entries in stop_data.items():
+                existing.setdefault(key, []).extend(entries)
+        else:
+            name_stops[name] = dict(stop_data)
+
+    if name_merged_count:
+        print(f"  Merged {name_merged_count:,} display-ID stop(s) into same-named stops "
+              f"({len(name_stops):,} unique names remain).")
+
+    for stop_data in name_stops.values():
         for key in stop_data:
             stop_data[key] = finalize_entries(stop_data[key])
+
+    # stop_names maps name -> name; kept for schema consistency with the client.
+    name_stop_names = {name: name for name in name_stops}
 
     output = {
         "week_start": WEEK_START.isoformat(),
         "day_patterns": day_patterns,
         "routes": routes_lookup,
         "directions": directions_reverse,
-        "stop_names": display_stop_names,
-        "stops": display_stops,
+        "stop_names": name_stop_names,
+        "stops": name_stops,
     }
 
-    print(f"Writing {OUTPUT_PATH} ({len(display_stops):,} stops, {rows_outside_week:,} rows skipped as outside the target week)...")
+    print(f"Writing {OUTPUT_PATH} ({len(name_stops):,} stops, {rows_outside_week:,} rows skipped as outside the target week)...")
     with open(OUTPUT_PATH, "w") as f:
         json.dump(output, f, separators=(",", ":"))
 
