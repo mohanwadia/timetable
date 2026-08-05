@@ -39,6 +39,17 @@
     }
 
     /* Search */
+    #searchLabelRow {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      margin-top: 12px;
+    }
+
+    #searchLabelRow label {
+      margin-top: 0;
+    }
+
     label {
       display: block;
       margin-top: 12px;
@@ -52,22 +63,33 @@
       margin-top: 4px;
     }
 
-    #randomBtn {
-      margin-top: 8px;
+    .plain-btn {
       padding: 3px 10px;
       font-size: 13px;
       cursor: pointer;
+      background: none;
+      border: 1px solid #ccc;
+      border-radius: 2px;
+      color: #333;
     }
 
-    #randomBtn:disabled {
+    .plain-btn:hover {
+      background: #f0f0f0;
+    }
+
+    .plain-btn:disabled {
       color: #999;
+      border-color: #ddd;
       cursor: not-allowed;
     }
 
-    #status {
-      margin-top: 8px;
-      color: #777;
+    #randomBtn {
       font-size: 12px;
+      padding: 2px 8px;
+    }
+
+    #status {
+      display: none;
     }
 
     #searchWrap {
@@ -111,9 +133,7 @@
     }
 
     #stopPreview h2 {
-      font-size: 13px;
-      font-weight: bold;
-      margin: 0 0 6px;
+      display: none;
     }
 
     .preview-stop-id {
@@ -175,35 +195,13 @@
     }
 
     #clearBtn {
-      background: none;
-      border: none;
-      padding: 0;
       font-size: 12px;
-      color: #999;
-      cursor: pointer;
-    }
-
-    #clearBtn:hover {
-      color: #c00;
+      padding: 2px 8px;
     }
 
     #exportBtn {
-      padding: 3px 10px;
       font-size: 12px;
-      cursor: pointer;
-      background: #1a1a1a;
-      color: #fff;
-      border: none;
-      border-radius: 3px;
-    }
-
-    #exportBtn:hover {
-      background: #333;
-    }
-
-    #exportBtn:disabled {
-      background: #aaa;
-      cursor: not-allowed;
+      padding: 2px 8px;
     }
 
     .sel-item {
@@ -246,8 +244,12 @@
     table {
       margin-top: 0;
       border-collapse: collapse;
-      width: 100%;
       font-size: 13px;
+    }
+
+    .screen-table {
+      width: auto;
+      min-width: 100%;
     }
 
     th,
@@ -471,14 +473,15 @@
 
   <div id="topLayout">
     <div id="leftPane">
-      <label>Search for a stop
-        <div id="searchWrap">
-          <input type="text" id="stopSearchInput" placeholder="Stop name" disabled autocomplete="off" />
-          <div id="suggestions"></div>
-        </div>
-      </label>
-      <button id="randomBtn" disabled>Random</button>
-      <div id="status">Loading...</div>
+      <div id="searchLabelRow">
+        <label for="stopSearchInput">Search for a stop</label>
+        <button id="randomBtn" class="plain-btn" disabled>Random</button>
+      </div>
+      <div id="searchWrap">
+        <input type="text" id="stopSearchInput" placeholder="Stop name" disabled autocomplete="off" />
+        <div id="suggestions"></div>
+      </div>
+      <div id="status"></div>
 
       <div id="stopPreview">
         <h2 id="previewName"></h2>
@@ -489,9 +492,9 @@
     <div id="rightPane">
       <div id="selectionsPanel">
         <div id="selectionsHeader">
-          <h2>Timetable</h2>
-          <button id="clearBtn">clear all</button>
-          <button id="exportBtn" onclick="window.print()">Export as PDF</button>
+          <h2>Selected</h2>
+          <button id="clearBtn" class="plain-btn">Clear all</button>
+          <button id="exportBtn" class="plain-btn" onclick="window.print()">Export as PDF</button>
         </div>
         <div id="selectionsList"></div>
       </div>
@@ -607,7 +610,7 @@
         const item = document.createElement("div");
         item.className = "suggestion-item";
         item.dataset.stopId = r.id;
-        item.innerHTML = escapeHtml(r.name) + ' <span class="sug-id">(' + escapeHtml(r.id) + ")</span>";
+        item.innerHTML = escapeHtml(r.name);
         item.addEventListener("click", () => previewStop(r.id));
         box.appendChild(item);
       });
@@ -639,15 +642,16 @@
 
     function previewStop(stopId) {
       hideSuggestions();
-      searchInput().value = "";
+      const name = cleanStopName(stopNamesLookup[stopId] || stopId);
+      const inp = searchInput();
+      inp.value = "";
+      inp.placeholder = name;
 
       previewStopId = stopId;
-      const name = cleanStopName(stopNamesLookup[stopId] || stopId);
       previewGrouped = buildPatternGroups(condensedByStop[stopId] || {});
       const stems = Object.keys(previewGrouped).sort();
 
-      document.getElementById("previewName").innerHTML =
-        escapeHtml(name) + '<span class="preview-stop-id">(' + escapeHtml(stopId) + ')</span>';
+      document.getElementById("previewName").innerHTML = "";
 
       const container = document.getElementById("previewDirections");
       container.innerHTML = "";
@@ -763,14 +767,14 @@
       panel.style.display = "block";
 
       selectedItems.forEach(({ stopId, stem }) => {
-        const stopName = stopNamesLookup[stopId] || stopId;
+        const stopName = cleanStopName(stopNamesLookup[stopId] || stopId);
         const [routeName, direction] = stem.split("|");
 
         const row = document.createElement("div");
         row.className = "sel-item";
         row.innerHTML =
           escapeHtml(routeName + " " + direction) +
-          ' <span class="sel-item-stop">' + escapeHtml(stopName) + ' (' + escapeHtml(stopId) + ')</span>';
+          ' <span class="sel-item-stop">' + escapeHtml(stopName) + '</span>';
 
         const removeBtn = document.createElement("button");
         removeBtn.className = "sel-remove";
@@ -839,6 +843,7 @@
         const wrap = document.createElement("div");
         wrap.className = "table-wrap";
         const table = document.createElement("table");
+        table.className = "screen-table";
         const hr = table.createTHead().insertRow();
 
         const hourTh = document.createElement("th");
@@ -853,6 +858,8 @@
 
         const tbody = table.createTBody();
         for (let h = 0; h < 24; h++) {
+          const hasData = stems.some(s => (grid[bucket][h][s] || []).length > 0);
+          if (!hasData) continue;
           const row = tbody.insertRow();
           row.insertCell().textContent = formatHour(h);
           stems.forEach(stem => {
@@ -893,17 +900,17 @@
       }
 
       // ── Group stems into pages using a dynamic fit calculation ──
-      const cols = computePrintCols(grouped, stems);
+      const cols = computePrintCols(grouped, stems, grid, activeHours);
       const stemGroups = [];
       for (let i = 0; i < stems.length; i += cols) {
         stemGroups.push(stems.slice(i, i + cols));
       }
 
       // ── Build stop→stem lookup from selectedItems ──
-      const stemStops = {}; // stem → ["Stop Name (id)", …]
+      const stemStops = {}; // stem → ["Stop Name", …]
       selectedItems.forEach(({ stopId, stem }) => {
         if (!stemStops[stem]) stemStops[stem] = [];
-        const label = (stopNamesLookup[stopId] || stopId) + " (" + stopId + ")";
+        const label = cleanStopName(stopNamesLookup[stopId] || stopId);
         if (!stemStops[stem].includes(label)) stemStops[stem].push(label);
       });
 
@@ -979,7 +986,7 @@
           (stemStops[stem] || []).forEach(stopLabel => {
             const d = document.createElement("div");
             d.className = "detail-stop";
-            d.textContent = stopLabel;
+            d.innerHTML = escapeHtml(stopLabel).replace(/\//g, "/<wbr>");
             block.appendChild(d);
           });
 
@@ -1029,13 +1036,11 @@
       });
     }
 
-    function computePrintCols(grouped, stems) {
-      const maxCols = Math.min(PRINT_MAX_COLS, stems.length);
-      for (let cols = maxCols; cols >= 1; cols--) {
+    function computePrintCols(grouped, stems, grid, activeHours) {
+      for (let cols = Math.min(PRINT_MAX_COLS, stems.length); cols >= 1; cols--) {
         let allFit = true;
         for (let i = 0; i < stems.length; i += cols) {
-          const group = stems.slice(i, i + cols);
-          if (!printGroupFits(grouped, group)) {
+          if (!printGroupFits(grouped, stems.slice(i, i + cols), grid, activeHours)) {
             allFit = false;
             break;
           }
@@ -1045,58 +1050,52 @@
       return 1;
     }
 
-    function printGroupFits(grouped, group) {
+    // Measure whether a group of stems fits in one print cell by rendering a hidden
+    // table that includes both the header row and a data row sized to the maximum
+    // departure count per stem — so the fit check reflects actual content width.
+    function printGroupFits(grouped, group, grid, activeHours) {
       const wrapper = document.createElement("div");
-      wrapper.style.position = "absolute";
-      wrapper.style.visibility = "hidden";
-      wrapper.style.left = "-9999px";
-      wrapper.style.top = "-9999px";
-      wrapper.style.width = PRINT_PAGE_CELL_WIDTH_MM + "mm";
-      wrapper.style.fontSize = "8.5pt";
-      wrapper.style.lineHeight = "1.2";
-      wrapper.style.whiteSpace = "nowrap";
+      wrapper.style.cssText =
+        "position:absolute;visibility:hidden;left:-9999px;top:-9999px;" +
+        "width:" + PRINT_PAGE_CELL_WIDTH_MM + "mm;font-size:8.5pt;";
 
       const table = document.createElement("table");
-      table.style.borderCollapse = "collapse";
-      table.style.tableLayout = "auto";
-      table.style.width = "auto";
-      table.style.whiteSpace = "nowrap";
-      table.style.fontSize = "8.5pt";
+      table.style.cssText =
+        "border-collapse:collapse;table-layout:auto;width:auto;font-size:8.5pt;";
 
-      const thead = table.createTHead();
-      const row = thead.insertRow();
-
-      const hourTh = document.createElement("th");
-      hourTh.textContent = "Hr";
-      hourTh.style.padding = "1px 3px";
-      hourTh.style.whiteSpace = "nowrap";
-      row.appendChild(hourTh);
-
+      // Header row
+      const hr = table.createTHead().insertRow();
+      const hTh = document.createElement("th");
+      hTh.textContent = "Hr";
+      hTh.style.cssText = "padding:1px 3px;white-space:nowrap;";
+      hr.appendChild(hTh);
       group.forEach(stem => {
         const th = document.createElement("th");
-        th.style.padding = "1px 3px";
-        th.style.whiteSpace = "nowrap";
+        th.style.cssText = "padding:1px 3px;white-space:nowrap;";
+        th.textContent = grouped[stem].route_short_name + " " + grouped[stem].direction;
+        hr.appendChild(th);
+      });
 
-        const routeSpan = document.createElement("span");
-        routeSpan.style.display = "inline-block";
-        routeSpan.style.fontWeight = "bold";
-        routeSpan.style.fontSize = "8.5pt";
-        routeSpan.textContent = grouped[stem].route_short_name;
-
-        const dirSpan = document.createElement("span");
-        dirSpan.style.display = "inline-block";
-        dirSpan.style.fontSize = "7.5pt";
-        dirSpan.style.color = "#444";
-        dirSpan.textContent = grouped[stem].direction;
-
-        th.appendChild(routeSpan);
-        th.appendChild(dirSpan);
-        row.appendChild(th);
+      // Representative data row: each column gets as many "00" entries as its
+      // busiest hour across all buckets, which sets the true column width.
+      const dr = table.createTBody().insertRow();
+      const hourCell = dr.insertCell();
+      hourCell.textContent = "12 PM";
+      hourCell.style.cssText = "padding:1px 3px;white-space:nowrap;font-family:sans-serif;";
+      group.forEach(stem => {
+        let maxDeps = 0;
+        BUCKETS.forEach(b => {
+          activeHours.forEach(h => {
+            maxDeps = Math.max(maxDeps, (grid[b][h][stem] || []).length);
+          });
+        });
+        const cell = dr.insertCell();
+        cell.style.cssText = "padding:1px 3px;white-space:nowrap;font-family:monospace;";
+        cell.textContent = Array(maxDeps).fill("00").join("  ");
       });
 
       wrapper.appendChild(table);
       document.body.appendChild(wrapper);
-
       const fits = wrapper.scrollWidth <= wrapper.clientWidth;
       document.body.removeChild(wrapper);
       return fits;
