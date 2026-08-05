@@ -26,11 +26,13 @@
     max-height: 260px; overflow-y: auto;
   }
   .suggestion-item { padding: 5px 8px; cursor: pointer; font-size: 13px; }
+  .suggestion-item .sug-id { color: #777; font-size: 12px; }
   .suggestion-item:hover, .suggestion-item.active { background: #eee; }
 
   /* Stop preview */
   #stopPreview { margin-top: 16px; display: none; }
   #stopPreview h2 { font-size: 13px; font-weight: bold; margin: 0 0 6px; }
+  .preview-stop-id { color: #666; font-weight: normal; margin-left: 4px; }
   .direction-row { display: flex; align-items: baseline; gap: 8px; padding: 3px 0; font-size: 13px; }
   .direction-label { flex: 1; }
   .add-btn {
@@ -46,6 +48,12 @@
   #selectionsHeader h2 { font-size: 13px; font-weight: bold; margin: 0; color: #333; }
   #clearBtn { background: none; border: none; padding: 0; font-size: 12px; color: #999; cursor: pointer; }
   #clearBtn:hover { color: #c00; }
+  #exportBtn {
+    padding: 3px 10px; font-size: 12px; cursor: pointer;
+    background: #1a1a1a; color: #fff; border: none; border-radius: 3px;
+  }
+  #exportBtn:hover { background: #333; }
+  #exportBtn:disabled { background: #aaa; cursor: not-allowed; }
   .sel-item { font-size: 13px; margin: 3px 0; color: #000; }
   .sel-item-stop { color: #666; font-size: 12px; }
   .sel-remove {
@@ -65,6 +73,104 @@
   sup { font-family: sans-serif; font-weight: bold; }
   #footnotes { margin-top: 16px; font-size: 12px; }
   #footnotes p { margin: 2px 0; }
+
+  /* Print-only content hidden on screen */
+  #print-results { display: none; }
+
+  /* ── Print 2×2 grid layout ── */
+  @page { size: A4 portrait; margin: 10mm; }
+
+  @media print {
+    body { margin: 0; padding: 0; font-size: 9pt; }
+
+    /* Hide interactive UI and screen tables */
+    #topLayout { display: none !important; }
+    h1          { display: none !important; }
+    #results    { display: none !important; }
+    #print-results { display: block !important; }
+
+    /* ── Each page is a full-bleed 2×2 grid ── */
+    .print-page {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      width:  190mm;          /* 210mm A4 − 2×10mm margins */
+      height: 277mm;          /* 297mm A4 − 2×10mm margins */
+      gap: 3mm;
+      box-sizing: border-box;
+      break-after: page;
+      page-break-after: always;
+    }
+    .print-page:last-child {
+      break-after: avoid;
+      page-break-after: avoid;
+    }
+
+    /* ── Each quadrant cell ── */
+    .print-cell {
+      padding: 2.5mm;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-sizing: border-box;
+    }
+
+    .cell-heading {
+      font-size: 10pt;
+      font-weight: bold;
+      margin: 0 0 1.5mm 0;
+      flex-shrink: 0;
+    }
+
+    /* ── Timetable table inside a cell ── */
+    .print-table {
+      border-collapse: collapse;
+      width: 100%;
+      font-size: 8.5pt;
+      flex: 1;
+      overflow: hidden;
+    }
+    .print-table th,
+    .print-table td {
+      border: 1px solid #ccc;
+      padding: 1px 3px;
+      vertical-align: top;
+      text-align: left;
+    }
+    .print-table th {
+      background: #ebebeb;
+      white-space: normal;
+      word-break: break-word;
+    }
+    .print-table td:first-child {
+      font-weight: bold;
+      white-space: nowrap;
+      font-family: sans-serif;
+      font-size: 8pt;
+    }
+    .print-table td {
+      font-family: monospace;
+      font-size: 8.5pt;
+    }
+    .print-table sup { font-family: sans-serif; font-weight: bold; }
+
+    /* Route name + direction stacked in header */
+    .th-route { display: block; font-weight: bold; font-size: 8.5pt; }
+    .th-dir   { display: block; font-weight: normal; font-size: 7.5pt; color: #444; }
+
+    /* ── Details cell (bottom-right) ── */
+    .print-cell-details { font-size: 8.5pt; }
+
+    .detail-block { margin-bottom: 2.5mm; }
+    .detail-stem-label { font-size: 9pt; font-weight: bold; margin-bottom: 0.8mm; }
+    .detail-stem-dir   { font-size: 8pt; color: #333; margin-bottom: 0.5mm; }
+    .detail-stop       { font-size: 7.5pt; color: #555; margin-left: 2mm; }
+
+    .detail-footnotes  { margin-top: 3mm; border-top: 1px solid #ccc; padding-top: 2mm; }
+    .detail-fn-heading { font-weight: bold; font-size: 9pt; margin-bottom: 1mm; }
+    .detail-fn-item    { font-size: 8pt; margin: 0.8mm 0; }
+    .detail-fn-item sup { font-family: sans-serif; font-weight: bold; }
+  }
 </style>
 </head>
 <body>
@@ -75,7 +181,7 @@
   <div id="leftPane">
     <label>Search for a stop
       <div id="searchWrap">
-        <input type="text" id="stopSearchInput" placeholder="Stop name" disabled autocomplete="off" />
+        <input type="text" id="stopSearchInput" placeholder="Stop name or stop_id" disabled autocomplete="off" />
         <div id="suggestions"></div>
       </div>
     </label>
@@ -93,6 +199,7 @@
       <div id="selectionsHeader">
         <h2>Timetable</h2>
         <button id="clearBtn">clear all</button>
+        <button id="exportBtn" onclick="window.print()">Export as PDF</button>
       </div>
       <div id="selectionsList"></div>
     </div>
@@ -100,10 +207,12 @@
 </div>
 
 <div id="results"></div>
+<div id="print-results"></div>
 
 <script>
 const BUCKETS = ["weekday", "saturday", "sunday"];
 const BUCKET_LABELS = { weekday: "Monday to Friday", saturday: "Saturday", sunday: "Sunday" };
+const PRINT_MAX_COLS = 4; // max direction columns per 2×2 printed page
 
 let condensedByStop = null;
 let routesLookup    = null;
@@ -180,7 +289,7 @@ function searchStops(query, limit = 20) {
   if (!q) return [];
   const results = [];
   for (const entry of stopIndex) {
-    if (entry.name.toLowerCase().includes(q)) {
+    if (entry.id.toLowerCase().startsWith(q) || entry.name.toLowerCase().includes(q)) {
       results.push(entry);
       if (results.length >= limit) break;
     }
@@ -197,7 +306,7 @@ function renderSuggestions(results) {
     const item = document.createElement("div");
     item.className = "suggestion-item";
     item.dataset.stopId = r.id;
-    item.textContent = r.name;
+    item.innerHTML = escapeHtml(r.name) + ' <span class="sug-id">(' + escapeHtml(r.id) + ")</span>";
     item.addEventListener("click", () => previewStop(r.id));
     box.appendChild(item);
   });
@@ -236,7 +345,8 @@ function previewStop(stopId) {
   previewGrouped = buildPatternGroups(condensedByStop[stopId] || {});
   const stems = Object.keys(previewGrouped).sort();
 
-  document.getElementById("previewName").textContent = name;
+  document.getElementById("previewName").innerHTML =
+    escapeHtml(name) + '<span class="preview-stop-id">(' + escapeHtml(stopId) + ')</span>';
 
   const container = document.getElementById("previewDirections");
   container.innerHTML = "";
@@ -360,7 +470,7 @@ function renderSelectionsPanel() {
     row.className = "sel-item";
     row.innerHTML =
       escapeHtml(routeName + " " + direction) +
-      ' <span class="sel-item-stop">' + escapeHtml(stopName) + '</span>';
+      ' <span class="sel-item-stop">' + escapeHtml(stopName) + ' (' + escapeHtml(stopId) + ')</span>';
 
     const removeBtn = document.createElement("button");
     removeBtn.className = "sel-remove";
@@ -466,6 +576,170 @@ function renderTables(grouped, stems) {
       });
     container.appendChild(fn);
   }
+
+  // Also build the print-optimised version
+  renderPrintTables(grouped, stems, grid, letterMap);
+}
+
+function renderPrintTables(grouped, stems, grid, letterMap) {
+  const container = document.getElementById("print-results");
+  container.innerHTML = "";
+
+  // ── Collect only hours that have any departure across all buckets & stems ──
+  const activeHours = [];
+  for (let h = 0; h < 24; h++) {
+    const anyData = BUCKETS.some(b => stems.some(s => (grid[b][h][s] || []).length > 0));
+    if (anyData) activeHours.push(h);
+  }
+
+  // ── Group stems into pages of PRINT_MAX_COLS columns each ──
+  const stemGroups = [];
+  for (let i = 0; i < stems.length; i += PRINT_MAX_COLS) {
+    stemGroups.push(stems.slice(i, i + PRINT_MAX_COLS));
+  }
+
+  // ── Build stop→stem lookup from selectedItems ──
+  const stemStops = {}; // stem → ["Stop Name (id)", …]
+  selectedItems.forEach(({ stopId, stem }) => {
+    if (!stemStops[stem]) stemStops[stem] = [];
+    const label = (stopNamesLookup[stopId] || stopId) + " (" + stopId + ")";
+    if (!stemStops[stem].includes(label)) stemStops[stem].push(label);
+  });
+
+  // ── Helper: build one timetable table for a bucket + stem group ──
+  function buildTimetableCell(bucketLabel, bucket, group) {
+    const cell = document.createElement("div");
+    cell.className = "print-cell";
+
+    const h3 = document.createElement("h3");
+    h3.className = "cell-heading";
+    h3.textContent = bucketLabel;
+    cell.appendChild(h3);
+
+    const table = document.createElement("table");
+    table.className = "print-table";
+
+    // Header row
+    const thead = table.createTHead();
+    const hr = thead.insertRow();
+    const hourTh = document.createElement("th");
+    hourTh.textContent = "Hr";
+    hr.appendChild(hourTh);
+    group.forEach(stem => {
+      const th = document.createElement("th");
+      th.innerHTML =
+        '<span class="th-route">' + escapeHtml(grouped[stem].route_short_name) + '</span>' +
+        '<span class="th-dir">'   + escapeHtml(grouped[stem].direction)        + '</span>';
+      hr.appendChild(th);
+    });
+
+    // Data rows — only active hours that have data in this bucket
+    const tbody = table.createTBody();
+    activeHours.forEach(h => {
+      const hasData = group.some(stem => (grid[bucket][h][stem] || []).length > 0);
+      if (!hasData) return;
+      const row = tbody.insertRow();
+      row.insertCell().textContent = formatHour(h);
+      group.forEach(stem => {
+        row.insertCell().innerHTML = cellHtml(grid[bucket][h][stem] || [], letterMap);
+      });
+    });
+
+    cell.appendChild(table);
+    return cell;
+  }
+
+  // ── Helper: build the details cell (stop names + footnotes) for a group ──
+  function buildDetailsCell(group) {
+    const cell = document.createElement("div");
+    cell.className = "print-cell print-cell-details";
+
+    const h3 = document.createElement("h3");
+    h3.className = "cell-heading";
+    h3.textContent = "Details";
+    cell.appendChild(h3);
+
+    // Stop names per direction (only for stems on this page)
+    group.forEach(stem => {
+      const [routeName, direction] = stem.split("|");
+      const block = document.createElement("div");
+      block.className = "detail-block";
+
+      const lbl = document.createElement("div");
+      lbl.className = "detail-stem-label";
+      lbl.textContent = routeName;
+      block.appendChild(lbl);
+
+      const dir = document.createElement("div");
+      dir.className = "detail-stem-dir";
+      dir.textContent = direction;
+      block.appendChild(dir);
+
+      (stemStops[stem] || []).forEach(stopLabel => {
+        const d = document.createElement("div");
+        d.className = "detail-stop";
+        d.textContent = stopLabel;
+        block.appendChild(d);
+      });
+
+      cell.appendChild(block);
+    });
+
+    // Next-day legend — only if any entries in this group have a "+" marker
+    const hasNextDay = BUCKETS.some(b =>
+      activeHours.some(h => group.some(stem =>
+        (grid[b][h][stem] || []).some(item => item.minutes.endsWith("+"))
+      ))
+    );
+
+    // Footnotes
+    if (hasNextDay || letterMap.size > 0) {
+      const fnDiv = document.createElement("div");
+      fnDiv.className = "detail-footnotes";
+
+      const fnH = document.createElement("div");
+      fnH.className = "detail-fn-heading";
+      fnH.textContent = "Notes";
+      fnDiv.appendChild(fnH);
+
+      if (hasNextDay) {
+        const ndNote = document.createElement("div");
+        ndNote.className = "detail-fn-item";
+        ndNote.innerHTML = "<sup>+</sup> Next day service";
+        fnDiv.appendChild(ndNote);
+      }
+
+      Array.from(letterMap.entries())
+        .sort((a, b) => a[1].length - b[1].length || a[1].localeCompare(b[1]))
+        .forEach(([note, letter]) => {
+          const p = document.createElement("div");
+          p.className = "detail-fn-item";
+          p.innerHTML = "<sup>" + letter + "</sup> " + escapeHtml(note);
+          fnDiv.appendChild(p);
+        });
+
+      cell.appendChild(fnDiv);
+    }
+
+    return cell;
+  }
+
+  // ── Assemble one print-page per stem group ──
+  stemGroups.forEach(group => {
+    const page = document.createElement("div");
+    page.className = "print-page";
+
+    // Top-left: Monday–Friday
+    page.appendChild(buildTimetableCell(BUCKET_LABELS["weekday"],  "weekday",  group));
+    // Top-right: Saturday
+    page.appendChild(buildTimetableCell(BUCKET_LABELS["saturday"], "saturday", group));
+    // Bottom-left: Sunday
+    page.appendChild(buildTimetableCell(BUCKET_LABELS["sunday"],   "sunday",   group));
+    // Bottom-right: Details
+    page.appendChild(buildDetailsCell(group));
+
+    container.appendChild(page);
+  });
 }
 
 // ─── Pattern helpers ──────────────────────────────────────────────────────────
@@ -481,28 +755,11 @@ function buildPatternGroups(patterns) {
     if (!grouped[stem]) {
       grouped[stem] = { route_short_name: routeData.name, route_color: routeData.color, direction, patterns: {} };
     }
-    // Partition entries into same-day (hour < 24) and overnight (hour >= 24).
-    // GTFS allows hours beyond 23 for post-midnight departures that still
-    // belong to the previous service day's trip (e.g. 25:30 = 1:30 AM next day).
-    const sameDayEntries = [];
-    const nextDayEntries = [];
-    entries.forEach(e => {
-      (parseInt(entryTime(e).split(":")[0], 10) >= 24 ? nextDayEntries : sameDayEntries).push(e);
+    bitsToDisplayBuckets(bits).forEach(bucket => {
+      grouped[stem].patterns[bucket] = grouped[stem].patterns[bucket]
+        ? grouped[stem].patterns[bucket].concat(entries)
+        : entries.slice();
     });
-    if (sameDayEntries.length) {
-      bitsToDisplayBuckets(bits).forEach(bucket => {
-        grouped[stem].patterns[bucket] = grouped[stem].patterns[bucket]
-          ? grouped[stem].patterns[bucket].concat(sameDayEntries)
-          : sameDayEntries.slice();
-      });
-    }
-    if (nextDayEntries.length) {
-      bitsToNextDayBuckets(bits).forEach(bucket => {
-        grouped[stem].patterns[bucket] = grouped[stem].patterns[bucket]
-          ? grouped[stem].patterns[bucket].concat(nextDayEntries)
-          : nextDayEntries.slice();
-      });
-    }
   }
   for (const stem in grouped) {
     const p = grouped[stem].patterns;
@@ -535,15 +792,6 @@ function bitsToDisplayBuckets(bits) {
   return Array.from(out);
 }
 
-// For GTFS times >= 24:00 (overnight services), the physical departure is on
-// the next calendar day.  Compute which display bucket(s) that falls into by
-// rotating the 7-char bitstring one position forward:
-//   Mon→Tue, Tue→Wed, …, Fri→Sat, Sat→Sun, Sun→Mon
-function bitsToNextDayBuckets(bits) {
-  const shifted = bits[6] + bits.slice(0, 6);
-  return bitsToDisplayBuckets(shifted);
-}
-
 function buildStemHourGrid(grouped, stems) {
   const grid = {};
   BUCKETS.forEach(bucket => {
@@ -555,10 +803,12 @@ function buildStemHourGrid(grouped, stems) {
     BUCKETS.forEach(bucket => {
       (grouped[stem].patterns[bucket] || []).forEach(e => {
         const time = entryTime(e);
-        const hour = parseInt(time.split(":")[0], 10) % 24;
+        const rawHour = parseInt(time.split(":")[0], 10);
+        const hour = rawHour % 24;
+        const nextDay = rawHour >= 24;
         const cell = grid[bucket][hour];
         if (!cell[stem]) cell[stem] = [];
-        cell[stem].push({ minutes: time.split(":")[1], notes: entryNotes(e) });
+        cell[stem].push({ minutes: time.split(":")[1] + (nextDay ? "+" : ""), notes: entryNotes(e) });
       });
     });
   });
