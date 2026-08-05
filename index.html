@@ -181,7 +181,7 @@
   <div id="leftPane">
     <label>Search for a stop
       <div id="searchWrap">
-        <input type="text" id="stopSearchInput" placeholder="Stop name or stop_id" disabled autocomplete="off" />
+        <input type="text" id="stopSearchInput" placeholder="Stop name" disabled autocomplete="off" />
         <div id="suggestions"></div>
       </div>
     </label>
@@ -259,6 +259,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
 function setStatus(msg) { document.getElementById("status").textContent = msg; }
 
+// Strip redundant parenthetical suffix when it duplicates the name, e.g.
+// "Cootamundra Cres/Surrey Rd(Cootamundra Cres/Surrey Rd)" -> "Cootamundra Cres/Surrey Rd"
+function cleanStopName(name) {
+  return name.replace(/\(([^)]+)\)$/, (match, inner) =>
+    inner.trim() === name.slice(0, name.length - match.length).trim() ? "" : match
+  ).trim();
+}
+
 async function loadReferenceData() {
   try {
     const res = await fetch("condensed_stop_times.json");
@@ -271,7 +279,7 @@ async function loadReferenceData() {
 
     stopIndex = Object.keys(condensedByStop)
       .filter(id => Object.keys(condensedByStop[id]).length > 0)
-      .map(id => ({ id, name: stopNamesLookup[id] || id }));
+      .map(id => ({ id, name: cleanStopName(stopNamesLookup[id] || id) }));
 
     searchInput().disabled = false;
     document.getElementById("randomBtn").disabled = false;
@@ -341,7 +349,7 @@ function previewStop(stopId) {
   searchInput().value = "";
 
   previewStopId = stopId;
-  const name = stopNamesLookup[stopId] || stopId;
+  const name = cleanStopName(stopNamesLookup[stopId] || stopId);
   previewGrouped = buildPatternGroups(condensedByStop[stopId] || {});
   const stems = Object.keys(previewGrouped).sort();
 
@@ -383,7 +391,6 @@ function previewStop(stopId) {
   }
 
   document.getElementById("stopPreview").style.display = "block";
-  setStatus(`${stems.length} direction(s) at ${name}.`);
 }
 
 // ─── URL persistence ──────────────────────────────────────────────────────────
@@ -685,15 +692,8 @@ function renderPrintTables(grouped, stems, grid, letterMap) {
       cell.appendChild(block);
     });
 
-    // Next-day legend — only if any entries in this group have a "+" marker
-    const hasNextDay = BUCKETS.some(b =>
-      activeHours.some(h => group.some(stem =>
-        (grid[b][h][stem] || []).some(item => item.minutes.endsWith("+"))
-      ))
-    );
-
     // Footnotes
-    if (hasNextDay || letterMap.size > 0) {
+    if (letterMap.size > 0) {
       const fnDiv = document.createElement("div");
       fnDiv.className = "detail-footnotes";
 
@@ -701,13 +701,6 @@ function renderPrintTables(grouped, stems, grid, letterMap) {
       fnH.className = "detail-fn-heading";
       fnH.textContent = "Notes";
       fnDiv.appendChild(fnH);
-
-      if (hasNextDay) {
-        const ndNote = document.createElement("div");
-        ndNote.className = "detail-fn-item";
-        ndNote.innerHTML = "<sup>+</sup> Next day service";
-        fnDiv.appendChild(ndNote);
-      }
 
       Array.from(letterMap.entries())
         .sort((a, b) => a[1].length - b[1].length || a[1].localeCompare(b[1]))
@@ -798,20 +791,25 @@ function buildStemHourGrid(grouped, stems) {
     grid[bucket] = {};
     for (let h = 0; h < 24; h++) grid[bucket][h] = {};
   });
+
+  // Map each bucket to the one that follows it (for past-midnight services)
+  const nextBucket = { weekday: "saturday", saturday: "sunday", sunday: "weekday" };
+
   stems.forEach(stem => {
     if (!grouped[stem]) return;
     BUCKETS.forEach(bucket => {
       (grouped[stem].patterns[bucket] || []).forEach(e => {
         const time = entryTime(e);
         const rawHour = parseInt(time.split(":")[0], 10);
+        const targetBucket = rawHour >= 24 ? nextBucket[bucket] : bucket;
         const hour = rawHour % 24;
-        const nextDay = rawHour >= 24;
-        const cell = grid[bucket][hour];
+        const cell = grid[targetBucket][hour];
         if (!cell[stem]) cell[stem] = [];
-        cell[stem].push({ minutes: time.split(":")[1] + (nextDay ? "+" : ""), notes: entryNotes(e) });
+        cell[stem].push({ minutes: time.split(":")[1], notes: entryNotes(e) });
       });
     });
   });
+
   BUCKETS.forEach(bucket => {
     for (let h = 0; h < 24; h++) {
       for (const stem in grid[bucket][h]) {
