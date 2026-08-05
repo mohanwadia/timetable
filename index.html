@@ -1,865 +1,1231 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Timetable Generator</title>
-<style>
-  body { font-family: sans-serif; font-size: 14px; max-width: 960px; margin: 40px auto; padding: 0 16px; color: #000; }
-  h1 { font-size: 18px; margin-bottom: 4px; }
-
-  /* Two-column top layout */
-  #topLayout { display: flex; gap: 48px; align-items: flex-start; margin-bottom: 8px; }
-  #leftPane { flex: 0 0 280px; }
-  #rightPane { flex: 1; min-width: 0; padding-top: 2px; }
-
-  /* Search */
-  label { display: block; margin-top: 12px; }
-  input[type="text"] { width: 100%; box-sizing: border-box; padding: 4px; font-size: 14px; margin-top: 4px; }
-  #randomBtn { margin-top: 8px; padding: 3px 10px; font-size: 13px; cursor: pointer; }
-  #randomBtn:disabled { color: #999; cursor: not-allowed; }
-  #status { margin-top: 8px; color: #777; font-size: 12px; }
-  #searchWrap { position: relative; }
-  #suggestions {
-    display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 10;
-    background: #fff; border: 1px solid #ccc; border-top: none;
-    max-height: 260px; overflow-y: auto;
-  }
-  .suggestion-item { padding: 5px 8px; cursor: pointer; font-size: 13px; }
-  .suggestion-item .sug-id { color: #777; font-size: 12px; }
-  .suggestion-item:hover, .suggestion-item.active { background: #eee; }
-
-  /* Stop preview */
-  #stopPreview { margin-top: 16px; display: none; }
-  #stopPreview h2 { font-size: 13px; font-weight: bold; margin: 0 0 6px; }
-  .preview-stop-id { color: #666; font-weight: normal; margin-left: 4px; }
-  .direction-row { display: flex; align-items: baseline; gap: 8px; padding: 3px 0; font-size: 13px; }
-  .direction-label { flex: 1; }
-  .add-btn {
-    flex-shrink: 0; padding: 1px 7px; font-size: 11px;
-    background: #e8e8e8; color: #444; border: 1px solid #ccc; cursor: pointer;
-  }
-  .add-btn:hover { background: #d8d8d8; }
-  .add-btn.is-added { color: #bbb; border-color: #ddd; background: #f4f4f4; cursor: default; }
-
-  /* Selections panel */
-  #selectionsPanel { display: none; }
-  #selectionsHeader { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
-  #selectionsHeader h2 { font-size: 13px; font-weight: bold; margin: 0; color: #333; }
-  #clearBtn { background: none; border: none; padding: 0; font-size: 12px; color: #999; cursor: pointer; }
-  #clearBtn:hover { color: #c00; }
-  #exportBtn {
-    padding: 3px 10px; font-size: 12px; cursor: pointer;
-    background: #1a1a1a; color: #fff; border: none; border-radius: 3px;
-  }
-  #exportBtn:hover { background: #333; }
-  #exportBtn:disabled { background: #aaa; cursor: not-allowed; }
-  .sel-item { font-size: 13px; margin: 3px 0; color: #000; }
-  .sel-item-stop { color: #666; font-size: 12px; }
-  .sel-remove {
-    background: none; border: none; padding: 0 0 0 4px; margin: 0;
-    cursor: pointer; color: #aaa; font-size: 13px; line-height: 1; vertical-align: middle;
-  }
-  .sel-remove:hover { color: #c00; }
-
-  /* Timetable */
-  .day-table-heading { margin: 24px 0 4px; font-size: 15px; }
-  .table-wrap { overflow-x: auto; }
-  table { margin-top: 0; border-collapse: collapse; width: 100%; font-size: 13px; }
-  th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; vertical-align: top; }
-  th { background: #eee; font-weight: bold; }
-  td:first-child { width: 60px; font-weight: bold; white-space: nowrap; font-family: sans-serif; }
-  td { font-family: monospace; }
-  sup { font-family: sans-serif; font-weight: bold; }
-  #footnotes { margin-top: 16px; font-size: 12px; }
-  #footnotes p { margin: 2px 0; }
-
-  /* Print-only content hidden on screen */
-  #print-results { display: none; }
-
-  /* ── Print 2×2 grid layout ── */
-  @page { size: A4 portrait; margin: 10mm; }
-
-  @media print {
-    body { margin: 0; padding: 0; font-size: 9pt; }
-
-    /* Hide interactive UI and screen tables */
-    #topLayout { display: none !important; }
-    h1          { display: none !important; }
-    #results    { display: none !important; }
-    #print-results { display: block !important; }
-
-    /* ── Each page is a full-bleed 2×2 grid ── */
-    .print-page {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      grid-template-rows: 1fr 1fr;
-      width:  190mm;          /* 210mm A4 − 2×10mm margins */
-      height: 277mm;          /* 297mm A4 − 2×10mm margins */
-      gap: 3mm;
-      box-sizing: border-box;
-      break-after: page;
-      page-break-after: always;
-    }
-    .print-page:last-child {
-      break-after: avoid;
-      page-break-after: avoid;
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Timetable Generator</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      font-size: 14px;
+      max-width: 960px;
+      margin: 40px auto;
+      padding: 0 16px;
+      color: #000;
     }
 
-    /* ── Each quadrant cell ── */
-    .print-cell {
-      padding: 2.5mm;
-      overflow: hidden;
+    h1 {
+      font-size: 18px;
+      margin-bottom: 4px;
+    }
+
+    /* Two-column top layout */
+    #topLayout {
       display: flex;
-      flex-direction: column;
+      gap: 48px;
+      align-items: flex-start;
+      margin-bottom: 8px;
+    }
+
+    #leftPane {
+      flex: 0 0 280px;
+    }
+
+    #rightPane {
+      flex: 1;
+      min-width: 0;
+      padding-top: 2px;
+    }
+
+    /* Search */
+    label {
+      display: block;
+      margin-top: 12px;
+    }
+
+    input[type="text"] {
+      width: 100%;
       box-sizing: border-box;
+      padding: 4px;
+      font-size: 14px;
+      margin-top: 4px;
     }
 
-    .cell-heading {
-      font-size: 10pt;
+    #randomBtn {
+      margin-top: 8px;
+      padding: 3px 10px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    #randomBtn:disabled {
+      color: #999;
+      cursor: not-allowed;
+    }
+
+    #status {
+      margin-top: 8px;
+      color: #777;
+      font-size: 12px;
+    }
+
+    #searchWrap {
+      position: relative;
+    }
+
+    #suggestions {
+      display: none;
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      z-index: 10;
+      background: #fff;
+      border: 1px solid #ccc;
+      border-top: none;
+      max-height: 260px;
+      overflow-y: auto;
+    }
+
+    .suggestion-item {
+      padding: 5px 8px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    .suggestion-item .sug-id {
+      color: #777;
+      font-size: 12px;
+    }
+
+    .suggestion-item:hover,
+    .suggestion-item.active {
+      background: #eee;
+    }
+
+    /* Stop preview */
+    #stopPreview {
+      margin-top: 16px;
+      display: none;
+    }
+
+    #stopPreview h2 {
+      font-size: 13px;
       font-weight: bold;
-      margin: 0 0 1.5mm 0;
-      flex-shrink: 0;
+      margin: 0 0 6px;
     }
 
-    /* ── Timetable table inside a cell ── */
-    .print-table {
+    .preview-stop-id {
+      color: #666;
+      font-weight: normal;
+      margin-left: 4px;
+    }
+
+    .direction-row {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      padding: 3px 0;
+      font-size: 13px;
+    }
+
+    .direction-label {
+      flex: 1;
+    }
+
+    .add-btn {
+      flex-shrink: 0;
+      padding: 1px 7px;
+      font-size: 11px;
+      background: #e8e8e8;
+      color: #444;
+      border: 1px solid #ccc;
+      cursor: pointer;
+    }
+
+    .add-btn:hover {
+      background: #d8d8d8;
+    }
+
+    .add-btn.is-added {
+      color: #bbb;
+      border-color: #ddd;
+      background: #f4f4f4;
+      cursor: default;
+    }
+
+    /* Selections panel */
+    #selectionsPanel {
+      display: none;
+    }
+
+    #selectionsHeader {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    #selectionsHeader h2 {
+      font-size: 13px;
+      font-weight: bold;
+      margin: 0;
+      color: #333;
+    }
+
+    #clearBtn {
+      background: none;
+      border: none;
+      padding: 0;
+      font-size: 12px;
+      color: #999;
+      cursor: pointer;
+    }
+
+    #clearBtn:hover {
+      color: #c00;
+    }
+
+    #exportBtn {
+      padding: 3px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      background: #1a1a1a;
+      color: #fff;
+      border: none;
+      border-radius: 3px;
+    }
+
+    #exportBtn:hover {
+      background: #333;
+    }
+
+    #exportBtn:disabled {
+      background: #aaa;
+      cursor: not-allowed;
+    }
+
+    .sel-item {
+      font-size: 13px;
+      margin: 3px 0;
+      color: #000;
+    }
+
+    .sel-item-stop {
+      color: #666;
+      font-size: 12px;
+    }
+
+    .sel-remove {
+      background: none;
+      border: none;
+      padding: 0 0 0 4px;
+      margin: 0;
+      cursor: pointer;
+      color: #aaa;
+      font-size: 13px;
+      line-height: 1;
+      vertical-align: middle;
+    }
+
+    .sel-remove:hover {
+      color: #c00;
+    }
+
+    /* Timetable */
+    .day-table-heading {
+      margin: 24px 0 4px;
+      font-size: 15px;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+    }
+
+    table {
+      margin-top: 0;
       border-collapse: collapse;
       width: 100%;
-      font-size: 8.5pt;
-      flex: 1;
-      overflow: hidden;
+      font-size: 13px;
     }
-    .print-table th,
-    .print-table td {
+
+    th,
+    td {
       border: 1px solid #ccc;
-      padding: 1px 3px;
-      vertical-align: top;
+      padding: 4px 8px;
       text-align: left;
+      vertical-align: top;
     }
-    .print-table th {
-      background: #ebebeb;
-      white-space: normal;
-      word-break: break-word;
+
+    th {
+      background: #eee;
+      font-weight: bold;
     }
-    .print-table td:first-child {
+
+    td:first-child {
+      width: 60px;
       font-weight: bold;
       white-space: nowrap;
       font-family: sans-serif;
-      font-size: 8pt;
     }
-    .print-table td {
+
+    td {
       font-family: monospace;
-      font-size: 8.5pt;
     }
-    .print-table sup { font-family: sans-serif; font-weight: bold; }
 
-    /* Route name + direction stacked in header */
-    .th-route { display: block; font-weight: bold; font-size: 8.5pt; }
-    .th-dir   { display: block; font-weight: normal; font-size: 7.5pt; color: #444; }
+    sup {
+      font-family: sans-serif;
+      font-weight: bold;
+    }
 
-    /* ── Details cell (bottom-right) ── */
-    .print-cell-details { font-size: 8.5pt; }
+    #footnotes {
+      margin-top: 16px;
+      font-size: 12px;
+    }
 
-    .detail-block { margin-bottom: 2.5mm; }
-    .detail-stem-label { font-size: 9pt; font-weight: bold; margin-bottom: 0.8mm; }
-    .detail-stem-dir   { font-size: 8pt; color: #333; margin-bottom: 0.5mm; }
-    .detail-stop       { font-size: 7.5pt; color: #555; margin-left: 2mm; }
+    #footnotes p {
+      margin: 2px 0;
+    }
 
-    .detail-footnotes  { margin-top: 3mm; border-top: 1px solid #ccc; padding-top: 2mm; }
-    .detail-fn-heading { font-weight: bold; font-size: 9pt; margin-bottom: 1mm; }
-    .detail-fn-item    { font-size: 8pt; margin: 0.8mm 0; }
-    .detail-fn-item sup { font-family: sans-serif; font-weight: bold; }
-  }
-</style>
+    /* Print-only content hidden on screen */
+    #print-results {
+      display: none;
+    }
+
+    /* ── Print 2×2 grid layout ── */
+    @page {
+      size: A4 portrait;
+      margin: 10mm;
+    }
+
+    @media print {
+      body {
+        margin: 0;
+        padding: 0;
+        font-size: 9pt;
+      }
+
+      /* Hide interactive UI and screen tables */
+      #topLayout {
+        display: none !important;
+      }
+
+      h1 {
+        display: none !important;
+      }
+
+      #results {
+        display: none !important;
+      }
+
+      #print-results {
+        display: block !important;
+      }
+
+      /* ── Each page is a full-bleed 2×2 grid ── */
+      .print-page {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: 1fr 1fr;
+        width: 190mm;
+        /* 210mm A4 − 2×10mm margins */
+        height: 277mm;
+        /* 297mm A4 − 2×10mm margins */
+        gap: 3mm;
+        box-sizing: border-box;
+        break-after: page;
+        page-break-after: always;
+      }
+
+      .print-page:last-child {
+        break-after: avoid;
+        page-break-after: avoid;
+      }
+
+      /* ── Each quadrant cell ── */
+      .print-cell {
+        padding: 2.5mm;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        box-sizing: border-box;
+      }
+
+      .cell-heading {
+        font-size: 10pt;
+        font-weight: bold;
+        margin: 0 0 1.5mm 0;
+        flex-shrink: 0;
+      }
+
+      /* ── Timetable table inside a cell ── */
+      .print-table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 8.5pt;
+        flex: 1;
+        overflow: hidden;
+      }
+
+      .print-table th,
+      .print-table td {
+        border: 1px solid #ccc;
+        padding: 1px 3px;
+        vertical-align: top;
+        text-align: left;
+      }
+
+      .print-table th {
+        background: #ebebeb;
+        white-space: normal;
+        word-break: break-word;
+      }
+
+      .print-table td:first-child {
+        font-weight: bold;
+        white-space: nowrap;
+        font-family: sans-serif;
+        font-size: 8pt;
+      }
+
+      .print-table td {
+        font-family: monospace;
+        font-size: 8.5pt;
+      }
+
+      .print-table sup {
+        font-family: sans-serif;
+        font-weight: bold;
+      }
+
+      /* Route name + direction stacked in header */
+      .th-route {
+        display: block;
+        font-weight: bold;
+        font-size: 8.5pt;
+      }
+
+      .th-dir {
+        display: block;
+        font-weight: normal;
+        font-size: 7.5pt;
+        color: #444;
+      }
+
+      /* ── Details cell (bottom-right) ── */
+      .print-cell-details {
+        font-size: 8.5pt;
+      }
+
+      .detail-block {
+        margin-bottom: 2.5mm;
+      }
+
+      .detail-stem-label {
+        font-size: 9pt;
+        font-weight: bold;
+        margin-bottom: 0.8mm;
+      }
+
+      .detail-stem-dir {
+        font-size: 8pt;
+        color: #333;
+        margin-bottom: 0.5mm;
+      }
+
+      .detail-stop {
+        font-size: 7.5pt;
+        color: #555;
+        margin-left: 2mm;
+      }
+
+      .detail-footnotes {
+        margin-top: 3mm;
+        border-top: 1px solid #ccc;
+        padding-top: 2mm;
+      }
+
+      .detail-fn-heading {
+        font-weight: bold;
+        font-size: 9pt;
+        margin-bottom: 1mm;
+      }
+
+      .detail-fn-item {
+        font-size: 8pt;
+        margin: 0.8mm 0;
+      }
+
+      .detail-fn-item sup {
+        font-family: sans-serif;
+        font-weight: bold;
+      }
+    }
+  </style>
 </head>
+
 <body>
 
-<h1>Timetable Generator</h1>
+  <h1>Timetable Generator</h1>
 
-<div id="topLayout">
-  <div id="leftPane">
-    <label>Search for a stop
-      <div id="searchWrap">
-        <input type="text" id="stopSearchInput" placeholder="Stop name" disabled autocomplete="off" />
-        <div id="suggestions"></div>
+  <div id="topLayout">
+    <div id="leftPane">
+      <label>Search for a stop
+        <div id="searchWrap">
+          <input type="text" id="stopSearchInput" placeholder="Stop name" disabled autocomplete="off" />
+          <div id="suggestions"></div>
+        </div>
+      </label>
+      <button id="randomBtn" disabled>Random</button>
+      <div id="status">Loading...</div>
+
+      <div id="stopPreview">
+        <h2 id="previewName"></h2>
+        <div id="previewDirections"></div>
       </div>
-    </label>
-    <button id="randomBtn" disabled>Random</button>
-    <div id="status">Loading...</div>
+    </div>
 
-    <div id="stopPreview">
-      <h2 id="previewName"></h2>
-      <div id="previewDirections"></div>
+    <div id="rightPane">
+      <div id="selectionsPanel">
+        <div id="selectionsHeader">
+          <h2>Timetable</h2>
+          <button id="clearBtn">clear all</button>
+          <button id="exportBtn" onclick="window.print()">Export as PDF</button>
+        </div>
+        <div id="selectionsList"></div>
+      </div>
     </div>
   </div>
 
-  <div id="rightPane">
-    <div id="selectionsPanel">
-      <div id="selectionsHeader">
-        <h2>Timetable</h2>
-        <button id="clearBtn">clear all</button>
-        <button id="exportBtn" onclick="window.print()">Export as PDF</button>
-      </div>
-      <div id="selectionsList"></div>
-    </div>
-  </div>
-</div>
+  <div id="results"></div>
+  <div id="print-results"></div>
 
-<div id="results"></div>
-<div id="print-results"></div>
+  <script>
+    const BUCKETS = ["weekday", "saturday", "sunday"];
+    const BUCKET_LABELS = { weekday: "Monday to Friday", saturday: "Saturday", sunday: "Sunday" };
+    const PRINT_MAX_COLS = 10; // upper bound for print columns per page
+    const PRINT_PAGE_CELL_WIDTH_MM = (190 - 3) / 2; // width of one printed quadrant in mm
 
-<script>
-const BUCKETS = ["weekday", "saturday", "sunday"];
-const BUCKET_LABELS = { weekday: "Monday to Friday", saturday: "Saturday", sunday: "Sunday" };
-const PRINT_MAX_COLS = 4; // max direction columns per 2×2 printed page
+    let condensedByStop = null;
+    let routesLookup = null;
+    let directionsLookup = null;
+    let stopNamesLookup = null;
 
-let condensedByStop = null;
-let routesLookup    = null;
-let directionsLookup = null;
-let stopNamesLookup  = null;
+    let stopIndex = [];              // [{ id, name }]
+    let activeSuggestionIndex = -1;
 
-let stopIndex = [];              // [{ id, name }]
-let activeSuggestionIndex = -1;
+    let previewStopId = null;        // stop currently shown in preview panel
+    let previewGrouped = null;       // buildPatternGroups result for previewStopId
 
-let previewStopId = null;        // stop currently shown in preview panel
-let previewGrouped = null;       // buildPatternGroups result for previewStopId
+    // Each entry: { stopId, stem }  — stem is "routeName|direction"
+    let selectedItems = [];
 
-// Each entry: { stopId, stem }  — stem is "routeName|direction"
-let selectedItems = [];
+    const searchInput = () => document.getElementById("stopSearchInput");
 
-const searchInput = () => document.getElementById("stopSearchInput");
+    document.getElementById("randomBtn").addEventListener("click", randomPreview);
+    document.getElementById("clearBtn").addEventListener("click", clearAll);
+    window.addEventListener("DOMContentLoaded", loadReferenceData);
+    document.addEventListener("click", (e) => {
+      if (!document.getElementById("searchWrap").contains(e.target)) hideSuggestions();
+    });
 
-document.getElementById("randomBtn").addEventListener("click", randomPreview);
-document.getElementById("clearBtn").addEventListener("click", clearAll);
-window.addEventListener("DOMContentLoaded", loadReferenceData);
-document.addEventListener("click", (e) => {
-  if (!document.getElementById("searchWrap").contains(e.target)) hideSuggestions();
-});
+    document.addEventListener("DOMContentLoaded", () => {
+      const input = document.getElementById("stopSearchInput");
+      input.addEventListener("input", () => renderSuggestions(searchStops(input.value)));
+      input.addEventListener("keydown", (e) => {
+        const box = document.getElementById("suggestions");
+        const visible = box.style.display === "block";
+        if (e.key === "ArrowDown" && visible) { e.preventDefault(); moveSuggestionSelection(1); }
+        else if (e.key === "ArrowUp" && visible) { e.preventDefault(); moveSuggestionSelection(-1); }
+        else if (e.key === "Enter") {
+          e.preventDefault();
+          const items = document.querySelectorAll(".suggestion-item");
+          if (activeSuggestionIndex >= 0 && items[activeSuggestionIndex]) {
+            previewStop(items[activeSuggestionIndex].dataset.stopId);
+          }
+        } else if (e.key === "Escape") { hideSuggestions(); }
+      });
+    });
 
-document.addEventListener("DOMContentLoaded", () => {
-  const input = document.getElementById("stopSearchInput");
-  input.addEventListener("input", () => renderSuggestions(searchStops(input.value)));
-  input.addEventListener("keydown", (e) => {
-    const box = document.getElementById("suggestions");
-    const visible = box.style.display === "block";
-    if (e.key === "ArrowDown" && visible) { e.preventDefault(); moveSuggestionSelection(1); }
-    else if (e.key === "ArrowUp" && visible) { e.preventDefault(); moveSuggestionSelection(-1); }
-    else if (e.key === "Enter") {
-      e.preventDefault();
-      const items = document.querySelectorAll(".suggestion-item");
-      if (activeSuggestionIndex >= 0 && items[activeSuggestionIndex]) {
-        previewStop(items[activeSuggestionIndex].dataset.stopId);
+    // ─── Data loading ─────────────────────────────────────────────────────────────
+
+    function setStatus(msg) { document.getElementById("status").textContent = msg; }
+
+    // Strip redundant parenthetical suffix when it duplicates the name, e.g.
+    // "Cootamundra Cres/Surrey Rd(Cootamundra Cres/Surrey Rd)" -> "Cootamundra Cres/Surrey Rd"
+    function cleanStopName(name) {
+      return name.replace(/\(([^)]+)\)$/, (match, inner) =>
+        inner.trim() === name.slice(0, name.length - match.length).trim() ? "" : match
+      ).trim();
+    }
+
+    async function loadReferenceData() {
+      try {
+        const res = await fetch("condensed_stop_times.json");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        condensedByStop = data.stops;
+        routesLookup = data.routes;
+        directionsLookup = data.directions;
+        stopNamesLookup = data.stop_names || {};
+
+        stopIndex = Object.keys(condensedByStop)
+          .filter(id => Object.keys(condensedByStop[id]).length > 0)
+          .map(id => ({ id, name: cleanStopName(stopNamesLookup[id] || id) }));
+
+        searchInput().disabled = false;
+        document.getElementById("randomBtn").disabled = false;
+        setStatus(`Loaded ${Object.keys(condensedByStop).length.toLocaleString()} stops.`);
+        loadFromUrl();
+      } catch (err) {
+        setStatus("Error loading condensed_stop_times.json: " + err.message);
       }
-    } else if (e.key === "Escape") { hideSuggestions(); }
-  });
-});
-
-// ─── Data loading ─────────────────────────────────────────────────────────────
-
-function setStatus(msg) { document.getElementById("status").textContent = msg; }
-
-// Strip redundant parenthetical suffix when it duplicates the name, e.g.
-// "Cootamundra Cres/Surrey Rd(Cootamundra Cres/Surrey Rd)" -> "Cootamundra Cres/Surrey Rd"
-function cleanStopName(name) {
-  return name.replace(/\(([^)]+)\)$/, (match, inner) =>
-    inner.trim() === name.slice(0, name.length - match.length).trim() ? "" : match
-  ).trim();
-}
-
-async function loadReferenceData() {
-  try {
-    const res = await fetch("condensed_stop_times.json");
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    condensedByStop  = data.stops;
-    routesLookup     = data.routes;
-    directionsLookup = data.directions;
-    stopNamesLookup  = data.stop_names || {};
-
-    stopIndex = Object.keys(condensedByStop)
-      .filter(id => Object.keys(condensedByStop[id]).length > 0)
-      .map(id => ({ id, name: cleanStopName(stopNamesLookup[id] || id) }));
-
-    searchInput().disabled = false;
-    document.getElementById("randomBtn").disabled = false;
-    setStatus(`Loaded ${Object.keys(condensedByStop).length.toLocaleString()} stops.`);
-    loadFromUrl();
-  } catch (err) {
-    setStatus("Error loading condensed_stop_times.json: " + err.message);
-  }
-}
-
-// ─── Search & suggestions ─────────────────────────────────────────────────────
-
-function searchStops(query, limit = 20) {
-  const q = query.trim().toLowerCase();
-  if (!q) return [];
-  const results = [];
-  for (const entry of stopIndex) {
-    if (entry.id.toLowerCase().startsWith(q) || entry.name.toLowerCase().includes(q)) {
-      results.push(entry);
-      if (results.length >= limit) break;
     }
-  }
-  return results;
-}
 
-function renderSuggestions(results) {
-  const box = document.getElementById("suggestions");
-  box.innerHTML = "";
-  activeSuggestionIndex = -1;
-  if (!results.length) { box.style.display = "none"; return; }
-  results.forEach(r => {
-    const item = document.createElement("div");
-    item.className = "suggestion-item";
-    item.dataset.stopId = r.id;
-    item.innerHTML = escapeHtml(r.name) + ' <span class="sug-id">(' + escapeHtml(r.id) + ")</span>";
-    item.addEventListener("click", () => previewStop(r.id));
-    box.appendChild(item);
-  });
-  box.style.display = "block";
-}
+    // ─── Search & suggestions ─────────────────────────────────────────────────────
 
-function hideSuggestions() {
-  const box = document.getElementById("suggestions");
-  box.style.display = "none";
-  box.innerHTML = "";
-  activeSuggestionIndex = -1;
-}
+    function searchStops(query, limit = 20) {
+      const q = query.trim().toLowerCase();
+      if (!q) return [];
+      const results = [];
+      for (const entry of stopIndex) {
+        if (entry.id.toLowerCase().startsWith(q) || entry.name.toLowerCase().includes(q)) {
+          results.push(entry);
+          if (results.length >= limit) break;
+        }
+      }
+      return results;
+    }
 
-function moveSuggestionSelection(delta) {
-  const items = Array.from(document.querySelectorAll(".suggestion-item"));
-  if (!items.length) return;
-  if (activeSuggestionIndex >= 0) items[activeSuggestionIndex].classList.remove("active");
-  activeSuggestionIndex = (activeSuggestionIndex + delta + items.length) % items.length;
-  items[activeSuggestionIndex].classList.add("active");
-  items[activeSuggestionIndex].scrollIntoView({ block: "nearest" });
-}
-
-function randomPreview() {
-  if (!stopIndex.length) return;
-  previewStop(stopIndex[Math.floor(Math.random() * stopIndex.length)].id);
-}
-
-// ─── Stop preview ─────────────────────────────────────────────────────────────
-
-function previewStop(stopId) {
-  hideSuggestions();
-  searchInput().value = "";
-
-  previewStopId = stopId;
-  const name = cleanStopName(stopNamesLookup[stopId] || stopId);
-  previewGrouped = buildPatternGroups(condensedByStop[stopId] || {});
-  const stems = Object.keys(previewGrouped).sort();
-
-  document.getElementById("previewName").innerHTML =
-    escapeHtml(name) + '<span class="preview-stop-id">(' + escapeHtml(stopId) + ')</span>';
-
-  const container = document.getElementById("previewDirections");
-  container.innerHTML = "";
-
-  if (!stems.length) {
-    container.textContent = "No departures found for this stop.";
-  } else {
-    stems.forEach(stem => {
-      const data = previewGrouped[stem];
-      const row = document.createElement("div");
-      row.className = "direction-row";
-      row.dataset.stem = stem;
-
-      const lbl = document.createElement("span");
-      lbl.className = "direction-label";
-      lbl.textContent = data.route_short_name + " " + data.direction;
-
-      const btn = document.createElement("button");
-      const isAdded = selectedItems.some(i => i.stopId === stopId && i.stem === stem);
-      btn.className = "add-btn" + (isAdded ? " is-added" : "");
-      btn.textContent = isAdded ? "Added" : "ADD";
-      btn.disabled = isAdded;
-      btn.addEventListener("click", () => {
-        addItem(stopId, stem);
-        btn.textContent = "Added";
-        btn.className = "add-btn is-added";
-        btn.disabled = true;
+    function renderSuggestions(results) {
+      const box = document.getElementById("suggestions");
+      box.innerHTML = "";
+      activeSuggestionIndex = -1;
+      if (!results.length) { box.style.display = "none"; return; }
+      results.forEach(r => {
+        const item = document.createElement("div");
+        item.className = "suggestion-item";
+        item.dataset.stopId = r.id;
+        item.innerHTML = escapeHtml(r.name) + ' <span class="sug-id">(' + escapeHtml(r.id) + ")</span>";
+        item.addEventListener("click", () => previewStop(r.id));
+        box.appendChild(item);
       });
-
-      row.appendChild(btn);
-      row.appendChild(lbl);
-      container.appendChild(row);
-    });
-  }
-
-  document.getElementById("stopPreview").style.display = "block";
-}
-
-// ─── URL persistence ──────────────────────────────────────────────────────────
-
-function updateUrl() {
-  const url = new URL(window.location);
-  if (selectedItems.length) {
-    url.searchParams.set("s", selectedItems.map(i => i.stopId + "~" + i.stem).join(","));
-  } else {
-    url.searchParams.delete("s");
-  }
-  window.history.replaceState(null, "", url);
-}
-
-function loadFromUrl() {
-  const param = new URLSearchParams(window.location.search).get("s");
-  if (!param) return;
-  param.split(",").forEach(token => {
-    const tilde = token.indexOf("~");
-    if (tilde === -1) return;
-    const stopId = token.slice(0, tilde);
-    const stem   = token.slice(tilde + 1);
-    if (condensedByStop[stopId]) selectedItems.push({ stopId, stem });
-  });
-  if (selectedItems.length) {
-    renderSelectionsPanel();
-    regenerateTimetable();
-  }
-}
-
-// ─── Selections ───────────────────────────────────────────────────────────────
-
-function addItem(stopId, stem) {
-  if (selectedItems.some(i => i.stopId === stopId && i.stem === stem)) return;
-  selectedItems.push({ stopId, stem });
-  updateUrl();
-  renderSelectionsPanel();
-  regenerateTimetable();
-}
-
-function removeItem(stopId, stem) {
-  selectedItems = selectedItems.filter(i => !(i.stopId === stopId && i.stem === stem));
-  updateUrl();
-  renderSelectionsPanel();
-  regenerateTimetable();
-  // Refresh ADD button in preview if this stop is still showing
-  if (previewStopId === stopId) {
-    const row = document.querySelector(`.direction-row[data-stem="${CSS.escape(stem)}"]`);
-    if (row) {
-      const btn = row.querySelector(".add-btn");
-      btn.textContent = "ADD";
-      btn.className = "add-btn";
-      btn.disabled = false;
+      box.style.display = "block";
     }
-  }
-}
 
-function clearAll() {
-  selectedItems = [];
-  updateUrl();
-  renderSelectionsPanel();
-  regenerateTimetable();
-  // Re-enable any ADD buttons in the current preview
-  document.querySelectorAll(".add-btn.is-added").forEach(btn => {
-    btn.textContent = "ADD";
-    btn.className = "add-btn";
-    btn.disabled = false;
-  });
-}
-
-function renderSelectionsPanel() {
-  const panel = document.getElementById("selectionsPanel");
-  const list  = document.getElementById("selectionsList");
-  list.innerHTML = "";
-
-  if (!selectedItems.length) { panel.style.display = "none"; return; }
-  panel.style.display = "block";
-
-  selectedItems.forEach(({ stopId, stem }) => {
-    const stopName = stopNamesLookup[stopId] || stopId;
-    const [routeName, direction] = stem.split("|");
-
-    const row = document.createElement("div");
-    row.className = "sel-item";
-    row.innerHTML =
-      escapeHtml(routeName + " " + direction) +
-      ' <span class="sel-item-stop">' + escapeHtml(stopName) + ' (' + escapeHtml(stopId) + ')</span>';
-
-    const removeBtn = document.createElement("button");
-    removeBtn.className = "sel-remove";
-    removeBtn.title = "Remove";
-    removeBtn.textContent = "×";
-    removeBtn.addEventListener("click", () => removeItem(stopId, stem));
-
-    row.appendChild(removeBtn);
-    list.appendChild(row);
-  });
-}
-
-// ─── Timetable ────────────────────────────────────────────────────────────────
-
-function regenerateTimetable() {
-  if (!selectedItems.length) {
-    document.getElementById("results").innerHTML = "";
-    return;
-  }
-
-  // Merge patterns from selected items, grouped by stem
-  const merged = {};
-  selectedItems.forEach(({ stopId, stem }) => {
-    const stopPatterns = condensedByStop[stopId];
-    if (!stopPatterns) return;
-    const g = buildPatternGroups(stopPatterns);
-    if (!g[stem]) return;
-    if (!merged[stem]) {
-      merged[stem] = { ...g[stem], patterns: {} };
+    function hideSuggestions() {
+      const box = document.getElementById("suggestions");
+      box.style.display = "none";
+      box.innerHTML = "";
+      activeSuggestionIndex = -1;
     }
-    BUCKETS.forEach(bucket => {
-      const entries = g[stem].patterns[bucket];
-      if (!entries) return;
-      merged[stem].patterns[bucket] = merged[stem].patterns[bucket]
-        ? merged[stem].patterns[bucket].concat(entries)
-        : entries.slice();
-    });
-  });
 
-  // Dedup after merging
-  for (const stem in merged) {
-    for (const bucket in merged[stem].patterns) {
-      merged[stem].patterns[bucket] = dedupeAndSortEntries(merged[stem].patterns[bucket]);
+    function moveSuggestionSelection(delta) {
+      const items = Array.from(document.querySelectorAll(".suggestion-item"));
+      if (!items.length) return;
+      if (activeSuggestionIndex >= 0) items[activeSuggestionIndex].classList.remove("active");
+      activeSuggestionIndex = (activeSuggestionIndex + delta + items.length) % items.length;
+      items[activeSuggestionIndex].classList.add("active");
+      items[activeSuggestionIndex].scrollIntoView({ block: "nearest" });
     }
-  }
 
-  // Stems sorted alphabetically
-  const stems = [...new Set(selectedItems.map(i => i.stem))].filter(s => merged[s]).sort();
+    function randomPreview() {
+      if (!stopIndex.length) return;
+      previewStop(stopIndex[Math.floor(Math.random() * stopIndex.length)].id);
+    }
 
-  document.getElementById("results").innerHTML = "";
-  renderTables(merged, stems);
-}
+    // ─── Stop preview ─────────────────────────────────────────────────────────────
 
-function renderTables(grouped, stems) {
-  const container = document.getElementById("results");
+    function previewStop(stopId) {
+      hideSuggestions();
+      searchInput().value = "";
 
-  const grid = buildStemHourGrid(grouped, stems);
-  const letterMap = assignFootnoteLetters(grid, stems);
+      previewStopId = stopId;
+      const name = cleanStopName(stopNamesLookup[stopId] || stopId);
+      previewGrouped = buildPatternGroups(condensedByStop[stopId] || {});
+      const stems = Object.keys(previewGrouped).sort();
 
-  BUCKETS.forEach(bucket => {
-    const heading = document.createElement("h2");
-    heading.className = "day-table-heading";
-    heading.textContent = BUCKET_LABELS[bucket];
-    container.appendChild(heading);
+      document.getElementById("previewName").innerHTML =
+        escapeHtml(name) + '<span class="preview-stop-id">(' + escapeHtml(stopId) + ')</span>';
 
-    const wrap = document.createElement("div");
-    wrap.className = "table-wrap";
-    const table = document.createElement("table");
-    const hr = table.createTHead().insertRow();
+      const container = document.getElementById("previewDirections");
+      container.innerHTML = "";
 
-    const hourTh = document.createElement("th");
-    hourTh.textContent = "Hour";
-    hr.appendChild(hourTh);
+      if (!stems.length) {
+        container.textContent = "No departures found for this stop.";
+      } else {
+        stems.forEach(stem => {
+          const data = previewGrouped[stem];
+          const row = document.createElement("div");
+          row.className = "direction-row";
+          row.dataset.stem = stem;
 
-    stems.forEach(stem => {
-      const th = document.createElement("th");
-      th.textContent = grouped[stem].route_short_name + " " + grouped[stem].direction;
-      hr.appendChild(th);
-    });
+          const lbl = document.createElement("span");
+          lbl.className = "direction-label";
+          lbl.textContent = data.route_short_name + " " + data.direction;
 
-    const tbody = table.createTBody();
-    for (let h = 0; h < 24; h++) {
-      const row = tbody.insertRow();
-      row.insertCell().textContent = formatHour(h);
-      stems.forEach(stem => {
-        row.insertCell().innerHTML = cellHtml(grid[bucket][h][stem] || [], letterMap);
+          const btn = document.createElement("button");
+          const isAdded = selectedItems.some(i => i.stopId === stopId && i.stem === stem);
+          btn.className = "add-btn" + (isAdded ? " is-added" : "");
+          btn.textContent = isAdded ? "Added" : "ADD";
+          btn.disabled = isAdded;
+          btn.addEventListener("click", () => {
+            addItem(stopId, stem);
+            btn.textContent = "Added";
+            btn.className = "add-btn is-added";
+            btn.disabled = true;
+          });
+
+          row.appendChild(btn);
+          row.appendChild(lbl);
+          container.appendChild(row);
+        });
+      }
+
+      document.getElementById("stopPreview").style.display = "block";
+    }
+
+    // ─── URL persistence ──────────────────────────────────────────────────────────
+
+    function updateUrl() {
+      const url = new URL(window.location);
+      if (selectedItems.length) {
+        url.searchParams.set("s", selectedItems.map(i => i.stopId + "~" + i.stem).join(","));
+      } else {
+        url.searchParams.delete("s");
+      }
+      window.history.replaceState(null, "", url);
+    }
+
+    function loadFromUrl() {
+      const param = new URLSearchParams(window.location.search).get("s");
+      if (!param) return;
+      param.split(",").forEach(token => {
+        const tilde = token.indexOf("~");
+        if (tilde === -1) return;
+        const stopId = token.slice(0, tilde);
+        const stem = token.slice(tilde + 1);
+        if (condensedByStop[stopId]) selectedItems.push({ stopId, stem });
+      });
+      if (selectedItems.length) {
+        renderSelectionsPanel();
+        regenerateTimetable();
+      }
+    }
+
+    // ─── Selections ───────────────────────────────────────────────────────────────
+
+    function addItem(stopId, stem) {
+      if (selectedItems.some(i => i.stopId === stopId && i.stem === stem)) return;
+      selectedItems.push({ stopId, stem });
+      updateUrl();
+      renderSelectionsPanel();
+      regenerateTimetable();
+    }
+
+    function removeItem(stopId, stem) {
+      selectedItems = selectedItems.filter(i => !(i.stopId === stopId && i.stem === stem));
+      updateUrl();
+      renderSelectionsPanel();
+      regenerateTimetable();
+      // Refresh ADD button in preview if this stop is still showing
+      if (previewStopId === stopId) {
+        const row = document.querySelector(`.direction-row[data-stem="${CSS.escape(stem)}"]`);
+        if (row) {
+          const btn = row.querySelector(".add-btn");
+          btn.textContent = "ADD";
+          btn.className = "add-btn";
+          btn.disabled = false;
+        }
+      }
+    }
+
+    function clearAll() {
+      selectedItems = [];
+      updateUrl();
+      renderSelectionsPanel();
+      regenerateTimetable();
+      // Re-enable any ADD buttons in the current preview
+      document.querySelectorAll(".add-btn.is-added").forEach(btn => {
+        btn.textContent = "ADD";
+        btn.className = "add-btn";
+        btn.disabled = false;
       });
     }
 
-    wrap.appendChild(table);
-    container.appendChild(wrap);
-  });
+    function renderSelectionsPanel() {
+      const panel = document.getElementById("selectionsPanel");
+      const list = document.getElementById("selectionsList");
+      list.innerHTML = "";
 
-  if (letterMap.size > 0) {
-    const fn = document.createElement("div");
-    fn.id = "footnotes";
-    Array.from(letterMap.entries())
-      .sort((a, b) => a[1].length - b[1].length || a[1].localeCompare(b[1]))
-      .forEach(([note, letter]) => {
-        const p = document.createElement("p");
-        p.innerHTML = "<sup>" + letter + "</sup> " + escapeHtml(note);
-        fn.appendChild(p);
+      if (!selectedItems.length) { panel.style.display = "none"; return; }
+      panel.style.display = "block";
+
+      selectedItems.forEach(({ stopId, stem }) => {
+        const stopName = stopNamesLookup[stopId] || stopId;
+        const [routeName, direction] = stem.split("|");
+
+        const row = document.createElement("div");
+        row.className = "sel-item";
+        row.innerHTML =
+          escapeHtml(routeName + " " + direction) +
+          ' <span class="sel-item-stop">' + escapeHtml(stopName) + ' (' + escapeHtml(stopId) + ')</span>';
+
+        const removeBtn = document.createElement("button");
+        removeBtn.className = "sel-remove";
+        removeBtn.title = "Remove";
+        removeBtn.textContent = "×";
+        removeBtn.addEventListener("click", () => removeItem(stopId, stem));
+
+        row.appendChild(removeBtn);
+        list.appendChild(row);
       });
-    container.appendChild(fn);
-  }
+    }
 
-  // Also build the print-optimised version
-  renderPrintTables(grouped, stems, grid, letterMap);
-}
+    // ─── Timetable ────────────────────────────────────────────────────────────────
 
-function renderPrintTables(grouped, stems, grid, letterMap) {
-  const container = document.getElementById("print-results");
-  container.innerHTML = "";
+    function regenerateTimetable() {
+      if (!selectedItems.length) {
+        document.getElementById("results").innerHTML = "";
+        return;
+      }
 
-  // ── Collect only hours that have any departure across all buckets & stems ──
-  const activeHours = [];
-  for (let h = 0; h < 24; h++) {
-    const anyData = BUCKETS.some(b => stems.some(s => (grid[b][h][s] || []).length > 0));
-    if (anyData) activeHours.push(h);
-  }
-
-  // ── Group stems into pages of PRINT_MAX_COLS columns each ──
-  const stemGroups = [];
-  for (let i = 0; i < stems.length; i += PRINT_MAX_COLS) {
-    stemGroups.push(stems.slice(i, i + PRINT_MAX_COLS));
-  }
-
-  // ── Build stop→stem lookup from selectedItems ──
-  const stemStops = {}; // stem → ["Stop Name (id)", …]
-  selectedItems.forEach(({ stopId, stem }) => {
-    if (!stemStops[stem]) stemStops[stem] = [];
-    const label = (stopNamesLookup[stopId] || stopId) + " (" + stopId + ")";
-    if (!stemStops[stem].includes(label)) stemStops[stem].push(label);
-  });
-
-  // ── Helper: build one timetable table for a bucket + stem group ──
-  function buildTimetableCell(bucketLabel, bucket, group) {
-    const cell = document.createElement("div");
-    cell.className = "print-cell";
-
-    const h3 = document.createElement("h3");
-    h3.className = "cell-heading";
-    h3.textContent = bucketLabel;
-    cell.appendChild(h3);
-
-    const table = document.createElement("table");
-    table.className = "print-table";
-
-    // Header row
-    const thead = table.createTHead();
-    const hr = thead.insertRow();
-    const hourTh = document.createElement("th");
-    hourTh.textContent = "Hr";
-    hr.appendChild(hourTh);
-    group.forEach(stem => {
-      const th = document.createElement("th");
-      th.innerHTML =
-        '<span class="th-route">' + escapeHtml(grouped[stem].route_short_name) + '</span>' +
-        '<span class="th-dir">'   + escapeHtml(grouped[stem].direction)        + '</span>';
-      hr.appendChild(th);
-    });
-
-    // Data rows — only active hours that have data in this bucket
-    const tbody = table.createTBody();
-    activeHours.forEach(h => {
-      const hasData = group.some(stem => (grid[bucket][h][stem] || []).length > 0);
-      if (!hasData) return;
-      const row = tbody.insertRow();
-      row.insertCell().textContent = formatHour(h);
-      group.forEach(stem => {
-        row.insertCell().innerHTML = cellHtml(grid[bucket][h][stem] || [], letterMap);
-      });
-    });
-
-    cell.appendChild(table);
-    return cell;
-  }
-
-  // ── Helper: build the details cell (stop names + footnotes) for a group ──
-  function buildDetailsCell(group) {
-    const cell = document.createElement("div");
-    cell.className = "print-cell print-cell-details";
-
-    const h3 = document.createElement("h3");
-    h3.className = "cell-heading";
-    h3.textContent = "Details";
-    cell.appendChild(h3);
-
-    // Stop names per direction (only for stems on this page)
-    group.forEach(stem => {
-      const [routeName, direction] = stem.split("|");
-      const block = document.createElement("div");
-      block.className = "detail-block";
-
-      const lbl = document.createElement("div");
-      lbl.className = "detail-stem-label";
-      lbl.textContent = routeName;
-      block.appendChild(lbl);
-
-      const dir = document.createElement("div");
-      dir.className = "detail-stem-dir";
-      dir.textContent = direction;
-      block.appendChild(dir);
-
-      (stemStops[stem] || []).forEach(stopLabel => {
-        const d = document.createElement("div");
-        d.className = "detail-stop";
-        d.textContent = stopLabel;
-        block.appendChild(d);
+      // Merge patterns from selected items, grouped by stem
+      const merged = {};
+      selectedItems.forEach(({ stopId, stem }) => {
+        const stopPatterns = condensedByStop[stopId];
+        if (!stopPatterns) return;
+        const g = buildPatternGroups(stopPatterns);
+        if (!g[stem]) return;
+        if (!merged[stem]) {
+          merged[stem] = { ...g[stem], patterns: {} };
+        }
+        BUCKETS.forEach(bucket => {
+          const entries = g[stem].patterns[bucket];
+          if (!entries) return;
+          merged[stem].patterns[bucket] = merged[stem].patterns[bucket]
+            ? merged[stem].patterns[bucket].concat(entries)
+            : entries.slice();
+        });
       });
 
-      cell.appendChild(block);
-    });
+      // Dedup after merging
+      for (const stem in merged) {
+        for (const bucket in merged[stem].patterns) {
+          merged[stem].patterns[bucket] = dedupeAndSortEntries(merged[stem].patterns[bucket]);
+        }
+      }
 
-    // Footnotes
-    if (letterMap.size > 0) {
-      const fnDiv = document.createElement("div");
-      fnDiv.className = "detail-footnotes";
+      // Stems sorted alphabetically
+      const stems = [...new Set(selectedItems.map(i => i.stem))].filter(s => merged[s]).sort();
 
-      const fnH = document.createElement("div");
-      fnH.className = "detail-fn-heading";
-      fnH.textContent = "Notes";
-      fnDiv.appendChild(fnH);
+      document.getElementById("results").innerHTML = "";
+      renderTables(merged, stems);
+    }
 
-      Array.from(letterMap.entries())
-        .sort((a, b) => a[1].length - b[1].length || a[1].localeCompare(b[1]))
-        .forEach(([note, letter]) => {
-          const p = document.createElement("div");
-          p.className = "detail-fn-item";
-          p.innerHTML = "<sup>" + letter + "</sup> " + escapeHtml(note);
-          fnDiv.appendChild(p);
+    function renderTables(grouped, stems) {
+      const container = document.getElementById("results");
+
+      const grid = buildStemHourGrid(grouped, stems);
+      const letterMap = assignFootnoteLetters(grid, stems);
+
+      BUCKETS.forEach(bucket => {
+        const heading = document.createElement("h2");
+        heading.className = "day-table-heading";
+        heading.textContent = BUCKET_LABELS[bucket];
+        container.appendChild(heading);
+
+        const wrap = document.createElement("div");
+        wrap.className = "table-wrap";
+        const table = document.createElement("table");
+        const hr = table.createTHead().insertRow();
+
+        const hourTh = document.createElement("th");
+        hourTh.textContent = "Hour";
+        hr.appendChild(hourTh);
+
+        stems.forEach(stem => {
+          const th = document.createElement("th");
+          th.textContent = grouped[stem].route_short_name + " " + grouped[stem].direction;
+          hr.appendChild(th);
         });
 
-      cell.appendChild(fnDiv);
-    }
+        const tbody = table.createTBody();
+        for (let h = 0; h < 24; h++) {
+          const row = tbody.insertRow();
+          row.insertCell().textContent = formatHour(h);
+          stems.forEach(stem => {
+            row.insertCell().innerHTML = cellHtml(grid[bucket][h][stem] || [], letterMap);
+          });
+        }
 
-    return cell;
-  }
-
-  // ── Assemble one print-page per stem group ──
-  stemGroups.forEach(group => {
-    const page = document.createElement("div");
-    page.className = "print-page";
-
-    // Top-left: Monday–Friday
-    page.appendChild(buildTimetableCell(BUCKET_LABELS["weekday"],  "weekday",  group));
-    // Top-right: Saturday
-    page.appendChild(buildTimetableCell(BUCKET_LABELS["saturday"], "saturday", group));
-    // Bottom-left: Sunday
-    page.appendChild(buildTimetableCell(BUCKET_LABELS["sunday"],   "sunday",   group));
-    // Bottom-right: Details
-    page.appendChild(buildDetailsCell(group));
-
-    container.appendChild(page);
-  });
-}
-
-// ─── Pattern helpers ──────────────────────────────────────────────────────────
-
-function buildPatternGroups(patterns) {
-  const grouped = {};
-  for (const key in patterns) {
-    const entries = patterns[key];
-    const [routeId, directionId, bits] = key.split("|");
-    const routeData = routesLookup[routeId];
-    const direction = directionsLookup[String(directionId)];
-    const stem = routeData.name + "|" + direction;
-    if (!grouped[stem]) {
-      grouped[stem] = { route_short_name: routeData.name, route_color: routeData.color, direction, patterns: {} };
-    }
-    bitsToDisplayBuckets(bits).forEach(bucket => {
-      grouped[stem].patterns[bucket] = grouped[stem].patterns[bucket]
-        ? grouped[stem].patterns[bucket].concat(entries)
-        : entries.slice();
-    });
-  }
-  for (const stem in grouped) {
-    const p = grouped[stem].patterns;
-    for (const b in p) p[b] = dedupeAndSortEntries(p[b]);
-  }
-  return grouped;
-}
-
-function entryTime(e)  { return typeof e === "string" ? e : e[0]; }
-function entryNotes(e) { return typeof e === "string" ? [] : e[1]; }
-
-function dedupeAndSortEntries(entries) {
-  const byTime = new Map();
-  entries.forEach(e => {
-    const t = entryTime(e);
-    if (!byTime.has(t)) byTime.set(t, new Set());
-    entryNotes(e).forEach(n => byTime.get(t).add(n));
-  });
-  return Array.from(byTime.keys()).sort().map(t => {
-    const notes = Array.from(byTime.get(t)).sort();
-    return notes.length ? [t, notes] : t;
-  });
-}
-
-function bitsToDisplayBuckets(bits) {
-  const out = new Set();
-  if (bits.slice(0, 5).includes("1")) out.add("weekday");
-  if (bits[5] === "1") out.add("saturday");
-  if (bits[6] === "1") out.add("sunday");
-  return Array.from(out);
-}
-
-function buildStemHourGrid(grouped, stems) {
-  const grid = {};
-  BUCKETS.forEach(bucket => {
-    grid[bucket] = {};
-    for (let h = 0; h < 24; h++) grid[bucket][h] = {};
-  });
-
-  // Map each bucket to the one that follows it (for past-midnight services)
-  const nextBucket = { weekday: "saturday", saturday: "sunday", sunday: "weekday" };
-
-  stems.forEach(stem => {
-    if (!grouped[stem]) return;
-    BUCKETS.forEach(bucket => {
-      (grouped[stem].patterns[bucket] || []).forEach(e => {
-        const time = entryTime(e);
-        const rawHour = parseInt(time.split(":")[0], 10);
-        const targetBucket = rawHour >= 24 ? nextBucket[bucket] : bucket;
-        const hour = rawHour % 24;
-        const cell = grid[targetBucket][hour];
-        if (!cell[stem]) cell[stem] = [];
-        cell[stem].push({ minutes: time.split(":")[1], notes: entryNotes(e) });
+        wrap.appendChild(table);
+        container.appendChild(wrap);
       });
-    });
-  });
 
-  BUCKETS.forEach(bucket => {
-    for (let h = 0; h < 24; h++) {
-      for (const stem in grid[bucket][h]) {
-        grid[bucket][h][stem].sort((a, z) => a.minutes.localeCompare(z.minutes));
+      if (letterMap.size > 0) {
+        const fn = document.createElement("div");
+        fn.id = "footnotes";
+        Array.from(letterMap.entries())
+          .sort((a, b) => a[1].length - b[1].length || a[1].localeCompare(b[1]))
+          .forEach(([note, letter]) => {
+            const p = document.createElement("p");
+            p.innerHTML = "<sup>" + letter + "</sup> " + escapeHtml(note);
+            fn.appendChild(p);
+          });
+        container.appendChild(fn);
       }
-    }
-  });
-  return grid;
-}
 
-function assignFootnoteLetters(grid, stems) {
-  const map = new Map();
-  let idx = 0;
-  BUCKETS.forEach(bucket => {
-    for (let h = 0; h < 24; h++) {
-      stems.forEach(stem => {
-        (grid[bucket][h][stem] || []).forEach(item =>
-          item.notes.forEach(n => { if (!map.has(n)) map.set(n, letterForIndex(idx++)); })
-        );
+      // Also build the print-optimised version
+      renderPrintTables(grouped, stems, grid, letterMap);
+    }
+
+    function renderPrintTables(grouped, stems, grid, letterMap) {
+      const container = document.getElementById("print-results");
+      container.innerHTML = "";
+
+      // ── Collect only hours that have any departure across all buckets & stems ──
+      const activeHours = [];
+      for (let h = 0; h < 24; h++) {
+        const anyData = BUCKETS.some(b => stems.some(s => (grid[b][h][s] || []).length > 0));
+        if (anyData) activeHours.push(h);
+      }
+
+      // ── Group stems into pages using a dynamic fit calculation ──
+      const cols = computePrintCols(grouped, stems);
+      const stemGroups = [];
+      for (let i = 0; i < stems.length; i += cols) {
+        stemGroups.push(stems.slice(i, i + cols));
+      }
+
+      // ── Build stop→stem lookup from selectedItems ──
+      const stemStops = {}; // stem → ["Stop Name (id)", …]
+      selectedItems.forEach(({ stopId, stem }) => {
+        if (!stemStops[stem]) stemStops[stem] = [];
+        const label = (stopNamesLookup[stopId] || stopId) + " (" + stopId + ")";
+        if (!stemStops[stem].includes(label)) stemStops[stem].push(label);
+      });
+
+      // ── Helper: build one timetable table for a bucket + stem group ──
+      function buildTimetableCell(bucketLabel, bucket, group) {
+        const cell = document.createElement("div");
+        cell.className = "print-cell";
+
+        const h3 = document.createElement("h3");
+        h3.className = "cell-heading";
+        h3.textContent = bucketLabel;
+        cell.appendChild(h3);
+
+        const table = document.createElement("table");
+        table.className = "print-table";
+
+        // Header row
+        const thead = table.createTHead();
+        const hr = thead.insertRow();
+        const hourTh = document.createElement("th");
+        hourTh.textContent = "Hr";
+        hr.appendChild(hourTh);
+        group.forEach(stem => {
+          const th = document.createElement("th");
+          th.innerHTML =
+            '<span class="th-route">' + escapeHtml(grouped[stem].route_short_name) + '</span>' +
+            '<span class="th-dir">' + escapeHtml(grouped[stem].direction) + '</span>';
+          hr.appendChild(th);
+        });
+
+        // Data rows — only active hours that have data in this bucket
+        const tbody = table.createTBody();
+        activeHours.forEach(h => {
+          const hasData = group.some(stem => (grid[bucket][h][stem] || []).length > 0);
+          if (!hasData) return;
+          const row = tbody.insertRow();
+          row.insertCell().textContent = formatHour(h);
+          group.forEach(stem => {
+            row.insertCell().innerHTML = cellHtml(grid[bucket][h][stem] || [], letterMap);
+          });
+        });
+
+        cell.appendChild(table);
+        return cell;
+      }
+
+      // ── Helper: build the details cell (stop names + footnotes) for a group ──
+      function buildDetailsCell(group) {
+        const cell = document.createElement("div");
+        cell.className = "print-cell print-cell-details";
+
+        const h3 = document.createElement("h3");
+        h3.className = "cell-heading";
+        h3.textContent = "Details";
+        cell.appendChild(h3);
+
+        // Stop names per direction (only for stems on this page)
+        group.forEach(stem => {
+          const [routeName, direction] = stem.split("|");
+          const block = document.createElement("div");
+          block.className = "detail-block";
+
+          const lbl = document.createElement("div");
+          lbl.className = "detail-stem-label";
+          lbl.textContent = routeName;
+          block.appendChild(lbl);
+
+          const dir = document.createElement("div");
+          dir.className = "detail-stem-dir";
+          dir.textContent = direction;
+          block.appendChild(dir);
+
+          (stemStops[stem] || []).forEach(stopLabel => {
+            const d = document.createElement("div");
+            d.className = "detail-stop";
+            d.textContent = stopLabel;
+            block.appendChild(d);
+          });
+
+          cell.appendChild(block);
+        });
+
+        // Footnotes
+        if (letterMap.size > 0) {
+          const fnDiv = document.createElement("div");
+          fnDiv.className = "detail-footnotes";
+
+          const fnH = document.createElement("div");
+          fnH.className = "detail-fn-heading";
+          fnH.textContent = "Notes";
+          fnDiv.appendChild(fnH);
+
+          Array.from(letterMap.entries())
+            .sort((a, b) => a[1].length - b[1].length || a[1].localeCompare(b[1]))
+            .forEach(([note, letter]) => {
+              const p = document.createElement("div");
+              p.className = "detail-fn-item";
+              p.innerHTML = "<sup>" + letter + "</sup> " + escapeHtml(note);
+              fnDiv.appendChild(p);
+            });
+
+          cell.appendChild(fnDiv);
+        }
+
+        return cell;
+      }
+
+      // ── Assemble one print-page per stem group ──
+      stemGroups.forEach(group => {
+        const page = document.createElement("div");
+        page.className = "print-page";
+
+        // Top-left: Monday–Friday
+        page.appendChild(buildTimetableCell(BUCKET_LABELS["weekday"], "weekday", group));
+        // Top-right: Saturday
+        page.appendChild(buildTimetableCell(BUCKET_LABELS["saturday"], "saturday", group));
+        // Bottom-left: Sunday
+        page.appendChild(buildTimetableCell(BUCKET_LABELS["sunday"], "sunday", group));
+        // Bottom-right: Details
+        page.appendChild(buildDetailsCell(group));
+
+        container.appendChild(page);
       });
     }
-  });
-  return map;
-}
 
-function letterForIndex(n) {
-  let r = ""; n += 1;
-  while (n > 0) { n--; r = String.fromCharCode(65 + n % 26) + r; n = Math.floor(n / 26); }
-  return r;
-}
+    function computePrintCols(grouped, stems) {
+      const maxCols = Math.min(PRINT_MAX_COLS, stems.length);
+      for (let cols = maxCols; cols >= 1; cols--) {
+        let allFit = true;
+        for (let i = 0; i < stems.length; i += cols) {
+          const group = stems.slice(i, i + cols);
+          if (!printGroupFits(grouped, group)) {
+            allFit = false;
+            break;
+          }
+        }
+        if (allFit) return cols;
+      }
+      return 1;
+    }
 
-function cellHtml(items, map) {
-  return items.map(item => {
-    const m = escapeHtml(item.minutes);
-    return item.notes.length ? m + "<sup>" + item.notes.map(n => map.get(n)).join(",") + "</sup>" : m;
-  }).join("  ");
-}
+    function printGroupFits(grouped, group) {
+      const wrapper = document.createElement("div");
+      wrapper.style.position = "absolute";
+      wrapper.style.visibility = "hidden";
+      wrapper.style.left = "-9999px";
+      wrapper.style.top = "-9999px";
+      wrapper.style.width = PRINT_PAGE_CELL_WIDTH_MM + "mm";
+      wrapper.style.fontSize = "8.5pt";
+      wrapper.style.lineHeight = "1.2";
+      wrapper.style.whiteSpace = "nowrap";
 
-function formatHour(h) {
-  const w = h % 24;
-  if (w === 0) return "12 AM";
-  if (w < 12) return w + " AM";
-  if (w === 12) return "12 PM";
-  return (w - 12) + " PM";
-}
+      const table = document.createElement("table");
+      table.style.borderCollapse = "collapse";
+      table.style.tableLayout = "auto";
+      table.style.width = "auto";
+      table.style.whiteSpace = "nowrap";
+      table.style.fontSize = "8.5pt";
 
-function escapeHtml(str) {
-  return String(str).replace(/[&<>"']/g, c =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-</script>
+      const thead = table.createTHead();
+      const row = thead.insertRow();
+
+      const hourTh = document.createElement("th");
+      hourTh.textContent = "Hr";
+      hourTh.style.padding = "1px 3px";
+      hourTh.style.whiteSpace = "nowrap";
+      row.appendChild(hourTh);
+
+      group.forEach(stem => {
+        const th = document.createElement("th");
+        th.style.padding = "1px 3px";
+        th.style.whiteSpace = "nowrap";
+
+        const routeSpan = document.createElement("span");
+        routeSpan.style.display = "inline-block";
+        routeSpan.style.fontWeight = "bold";
+        routeSpan.style.fontSize = "8.5pt";
+        routeSpan.textContent = grouped[stem].route_short_name;
+
+        const dirSpan = document.createElement("span");
+        dirSpan.style.display = "inline-block";
+        dirSpan.style.fontSize = "7.5pt";
+        dirSpan.style.color = "#444";
+        dirSpan.textContent = grouped[stem].direction;
+
+        th.appendChild(routeSpan);
+        th.appendChild(dirSpan);
+        row.appendChild(th);
+      });
+
+      wrapper.appendChild(table);
+      document.body.appendChild(wrapper);
+
+      const fits = wrapper.scrollWidth <= wrapper.clientWidth;
+      document.body.removeChild(wrapper);
+      return fits;
+    }
+
+    function buildPatternGroups(patterns) {
+      const grouped = {};
+      for (const key in patterns) {
+        const entries = patterns[key];
+        const [routeId, directionId, bits] = key.split("|");
+        const routeData = routesLookup[routeId];
+        const direction = directionsLookup[String(directionId)];
+        const stem = routeData.name + "|" + direction;
+        if (!grouped[stem]) {
+          grouped[stem] = { route_short_name: routeData.name, route_color: routeData.color, direction, patterns: {} };
+        }
+        bitsToDisplayBuckets(bits).forEach(bucket => {
+          grouped[stem].patterns[bucket] = grouped[stem].patterns[bucket]
+            ? grouped[stem].patterns[bucket].concat(entries)
+            : entries.slice();
+        });
+      }
+      for (const stem in grouped) {
+        const p = grouped[stem].patterns;
+        for (const b in p) p[b] = dedupeAndSortEntries(p[b]);
+      }
+      return grouped;
+    }
+
+    function entryTime(e) { return typeof e === "string" ? e : e[0]; }
+    function entryNotes(e) { return typeof e === "string" ? [] : e[1]; }
+
+    function dedupeAndSortEntries(entries) {
+      const byTime = new Map();
+      entries.forEach(e => {
+        const t = entryTime(e);
+        if (!byTime.has(t)) byTime.set(t, new Set());
+        entryNotes(e).forEach(n => byTime.get(t).add(n));
+      });
+      return Array.from(byTime.keys()).sort().map(t => {
+        const notes = Array.from(byTime.get(t)).sort();
+        return notes.length ? [t, notes] : t;
+      });
+    }
+
+    function bitsToDisplayBuckets(bits) {
+      const out = new Set();
+      if (bits.slice(0, 5).includes("1")) out.add("weekday");
+      if (bits[5] === "1") out.add("saturday");
+      if (bits[6] === "1") out.add("sunday");
+      return Array.from(out);
+    }
+
+    function buildStemHourGrid(grouped, stems) {
+      const grid = {};
+      BUCKETS.forEach(bucket => {
+        grid[bucket] = {};
+        for (let h = 0; h < 24; h++) grid[bucket][h] = {};
+      });
+
+      // Map each bucket to the one that follows it (for past-midnight services)
+      const nextBucket = { weekday: "saturday", saturday: "sunday", sunday: "weekday" };
+
+      stems.forEach(stem => {
+        if (!grouped[stem]) return;
+        BUCKETS.forEach(bucket => {
+          (grouped[stem].patterns[bucket] || []).forEach(e => {
+            const time = entryTime(e);
+            const rawHour = parseInt(time.split(":")[0], 10);
+            const targetBucket = rawHour >= 24 ? nextBucket[bucket] : bucket;
+            const hour = rawHour % 24;
+            const cell = grid[targetBucket][hour];
+            if (!cell[stem]) cell[stem] = [];
+            cell[stem].push({ minutes: time.split(":")[1], notes: entryNotes(e) });
+          });
+        });
+      });
+
+      BUCKETS.forEach(bucket => {
+        for (let h = 0; h < 24; h++) {
+          for (const stem in grid[bucket][h]) {
+            grid[bucket][h][stem].sort((a, z) => a.minutes.localeCompare(z.minutes));
+          }
+        }
+      });
+      return grid;
+    }
+
+    function assignFootnoteLetters(grid, stems) {
+      const map = new Map();
+      let idx = 0;
+      BUCKETS.forEach(bucket => {
+        for (let h = 0; h < 24; h++) {
+          stems.forEach(stem => {
+            (grid[bucket][h][stem] || []).forEach(item =>
+              item.notes.forEach(n => { if (!map.has(n)) map.set(n, letterForIndex(idx++)); })
+            );
+          });
+        }
+      });
+      return map;
+    }
+
+    function letterForIndex(n) {
+      let r = ""; n += 1;
+      while (n > 0) { n--; r = String.fromCharCode(65 + n % 26) + r; n = Math.floor(n / 26); }
+      return r;
+    }
+
+    function cellHtml(items, map) {
+      return items.map(item => {
+        const m = escapeHtml(item.minutes);
+        return item.notes.length ? m + "<sup>" + item.notes.map(n => map.get(n)).join(",") + "</sup>" : m;
+      }).join("  ");
+    }
+
+    function formatHour(h) {
+      const w = h % 24;
+      if (w === 0) return "12 AM";
+      if (w < 12) return w + " AM";
+      if (w === 12) return "12 PM";
+      return (w - 12) + " PM";
+    }
+
+    function escapeHtml(str) {
+      return String(str).replace(/[&<>"']/g, c =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+  </script>
 </body>
+
 </html>
