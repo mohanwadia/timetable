@@ -430,12 +430,6 @@
         margin-bottom: 0.8mm;
       }
 
-      .detail-stem-dir {
-        font-size: 8pt;
-        color: #333;
-        margin-bottom: 0.5mm;
-      }
-
       .detail-stop {
         font-size: 7.5pt;
         color: #555;
@@ -967,7 +961,7 @@
         h3.textContent = "Details";
         cell.appendChild(h3);
 
-        // Stop names per direction (only for stems on this page)
+        // One block per stem: "505 Melbourne University" heading + "Departs from …" per stop
         group.forEach(stem => {
           const [routeName, direction] = stem.split("|");
           const block = document.createElement("div");
@@ -975,26 +969,36 @@
 
           const lbl = document.createElement("div");
           lbl.className = "detail-stem-label";
-          lbl.textContent = routeName;
+          lbl.textContent = routeName + " " + direction;
           block.appendChild(lbl);
-
-          const dir = document.createElement("div");
-          dir.className = "detail-stem-dir";
-          dir.textContent = direction;
-          block.appendChild(dir);
 
           (stemStops[stem] || []).forEach(stopLabel => {
             const d = document.createElement("div");
             d.className = "detail-stop";
-            d.innerHTML = escapeHtml(stopLabel).replace(/\//g, "/<wbr>");
+            d.innerHTML = "Departs from " + escapeHtml(stopLabel).replace(/\//g, "/<wbr>");
             block.appendChild(d);
           });
 
           cell.appendChild(block);
         });
 
-        // Footnotes
-        if (letterMap.size > 0) {
+        // Footnotes — only those whose notes appear in this page's stems
+        const groupNotes = new Set();
+        BUCKETS.forEach(bucket => {
+          activeHours.forEach(h => {
+            group.forEach(stem => {
+              (grid[bucket][h][stem] || []).forEach(item =>
+                item.notes.forEach(n => groupNotes.add(n))
+              );
+            });
+          });
+        });
+
+        const pageFootnotes = Array.from(letterMap.entries())
+          .filter(([note]) => groupNotes.has(note))
+          .sort((a, b) => a[1].length - b[1].length || a[1].localeCompare(b[1]));
+
+        if (pageFootnotes.length > 0) {
           const fnDiv = document.createElement("div");
           fnDiv.className = "detail-footnotes";
 
@@ -1003,14 +1007,12 @@
           fnH.textContent = "Notes";
           fnDiv.appendChild(fnH);
 
-          Array.from(letterMap.entries())
-            .sort((a, b) => a[1].length - b[1].length || a[1].localeCompare(b[1]))
-            .forEach(([note, letter]) => {
-              const p = document.createElement("div");
-              p.className = "detail-fn-item";
-              p.innerHTML = "<sup>" + letter + "</sup> " + escapeHtml(note);
-              fnDiv.appendChild(p);
-            });
+          pageFootnotes.forEach(([note, letter]) => {
+            const p = document.createElement("div");
+            p.className = "detail-fn-item";
+            p.innerHTML = "<sup>" + letter + "</sup> " + escapeHtml(note);
+            fnDiv.appendChild(p);
+          });
 
           cell.appendChild(fnDiv);
         }
