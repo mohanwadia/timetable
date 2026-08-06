@@ -329,7 +329,7 @@
       .print-page {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        grid-template-rows: 1fr 1fr;
+        grid-template-rows: 8fr 7fr;
         width: 190mm;
         /* 210mm A4 − 2×10mm margins */
         height: 277mm;
@@ -365,6 +365,11 @@
       .print-table {
         border-collapse: collapse;
         width: 100%;
+        /* fixed layout: the table stays within its cell width instead of
+           expanding to minimum content width and getting clipped by the cell's
+           overflow:hidden. Column widths are set by the header row; data cells
+           share the remaining space evenly. */
+        table-layout: fixed;
         font-size: 8.5pt;
         flex: 1;
         overflow: hidden;
@@ -384,16 +389,24 @@
         word-break: break-word;
       }
 
+      /* Hour column: fixed width so data columns share whatever remains */
+      .print-table th:first-child {
+        width: 11mm;
+      }
+
       .print-table td:first-child {
         font-weight: bold;
         white-space: nowrap;
         font-family: sans-serif;
         font-size: 8pt;
+        width: 11mm;
       }
 
       .print-table td {
         font-family: monospace;
         font-size: 8.5pt;
+        overflow: hidden;
+        word-break: break-all;
       }
 
       .print-table sup {
@@ -953,7 +966,7 @@
           const row = tbody.insertRow();
           row.insertCell().textContent = formatHour(h);
           group.forEach(stem => {
-            row.insertCell().innerHTML = cellHtml(grid[bucket][h][stem] || [], letterMap);
+            row.insertCell().innerHTML = cellHtmlPrint(grid[bucket][h][stem] || [], letterMap);
           });
         });
 
@@ -1075,7 +1088,10 @@
       table.style.cssText =
         "border-collapse:collapse;table-layout:auto;width:auto;font-size:8.5pt;";
 
-      // Header row
+      // Header row — mirrors actual print format: route + direction stacked, word-wrap allowed.
+      // Using nowrap here (the old behaviour) caused the fit check to treat the full unbroken
+      // "505 To Melbourne University" string as the column's minimum width, which is far wider
+      // than the data cell and made the check reject many columns that actually fit in print.
       const hr = table.createTHead().insertRow();
       const hTh = document.createElement("th");
       hTh.textContent = "Hr";
@@ -1083,13 +1099,18 @@
       hr.appendChild(hTh);
       group.forEach(stem => {
         const th = document.createElement("th");
-        th.style.cssText = "padding:1px 3px;white-space:nowrap;";
-        th.textContent = grouped[stem].route_short_name + " " + grouped[stem].direction;
+        th.style.cssText = "padding:1px 3px;white-space:normal;word-break:break-word;";
+        th.innerHTML =
+          '<span style="display:block;font-weight:bold;font-size:8.5pt;">' +
+          escapeHtml(grouped[stem].route_short_name) + '</span>' +
+          '<span style="display:block;font-weight:normal;font-size:7.5pt;">' +
+          escapeHtml(grouped[stem].direction) + '</span>';
         hr.appendChild(th);
       });
 
       // Representative data row: each column gets as many "00" entries as its
       // busiest hour across all buckets, which sets the true column width.
+      // Single-space separator matches the print cell renderer (cellHtmlPrint).
       const dr = table.createTBody().insertRow();
       const hourCell = dr.insertCell();
       hourCell.textContent = "12 PM";
@@ -1103,7 +1124,7 @@
         });
         const cell = dr.insertCell();
         cell.style.cssText = "padding:1px 3px;white-space:nowrap;font-family:monospace;";
-        cell.textContent = Array(maxDeps).fill("00").join("  ");
+        cell.textContent = Array(maxDeps).fill("00").join(" ");
       });
 
       wrapper.appendChild(table);
@@ -1222,6 +1243,16 @@
         const m = escapeHtml(item.minutes);
         return item.notes.length ? m + "<sup>" + item.notes.map(n => map.get(n)).join(",") + "</sup>" : m;
       }).join("  ");
+    }
+
+    // Print-only variant: single-space separator saves meaningful horizontal space in
+    // the narrow print columns, allowing more directions to fit per page without
+    // affecting the screen timetable layout.
+    function cellHtmlPrint(items, map) {
+      return items.map(item => {
+        const m = escapeHtml(item.minutes);
+        return item.notes.length ? m + "<sup>" + item.notes.map(n => map.get(n)).join(",") + "</sup>" : m;
+      }).join(" ");
     }
 
     function formatHour(h) {
