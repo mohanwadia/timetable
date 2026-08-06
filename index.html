@@ -504,6 +504,10 @@
     const PRINT_MAX_COLS = 10; // upper bound for print columns per page
     const PRINT_PAGE_CELL_WIDTH_MM = (190 - 3) / 2; // width of one printed quadrant in mm
 
+    // Minimum hour range to show per bucket (inclusive), even if no data
+    const BUCKET_MIN_HOUR = { weekday: 6,  saturday: 8,  sunday: 9  };
+    const BUCKET_MAX_HOUR = { weekday: 21, saturday: 21, sunday: 21 };
+
     let condensedByStop = null;
     let routesLookup = null;
     let directionsLookup = null;
@@ -822,6 +826,23 @@
       renderTables(merged, stems);
     }
 
+    // Returns a contiguous array of hours to display for a bucket.
+    // Always covers the minimum span; extends outward if data exists outside it.
+    function getBucketHours(bucket, grid, stems) {
+      let first = null, last = null;
+      for (let h = 0; h < 24; h++) {
+        if (stems.some(s => (grid[bucket][h][s] || []).length > 0)) {
+          if (first === null) first = h;
+          last = h;
+        }
+      }
+      const start = Math.min(first !== null ? first : BUCKET_MIN_HOUR[bucket], BUCKET_MIN_HOUR[bucket]);
+      const end   = Math.max(last  !== null ? last  : BUCKET_MAX_HOUR[bucket], BUCKET_MAX_HOUR[bucket]);
+      const hours = [];
+      for (let h = start; h <= end; h++) hours.push(h);
+      return hours;
+    }
+
     function renderTables(grouped, stems) {
       const container = document.getElementById("results");
 
@@ -851,15 +872,13 @@
         });
 
         const tbody = table.createTBody();
-        for (let h = 0; h < 24; h++) {
-          const hasData = stems.some(s => (grid[bucket][h][s] || []).length > 0);
-          if (!hasData) continue;
+        getBucketHours(bucket, grid, stems).forEach(h => {
           const row = tbody.insertRow();
           row.insertCell().textContent = formatHour(h);
           stems.forEach(stem => {
             row.insertCell().innerHTML = cellHtml(grid[bucket][h][stem] || [], letterMap);
           });
-        }
+        });
 
         wrap.appendChild(table);
         container.appendChild(wrap);
@@ -886,15 +905,8 @@
       const container = document.getElementById("print-results");
       container.innerHTML = "";
 
-      // ── Collect only hours that have any departure across all buckets & stems ──
-      const activeHours = [];
-      for (let h = 0; h < 24; h++) {
-        const anyData = BUCKETS.some(b => stems.some(s => (grid[b][h][s] || []).length > 0));
-        if (anyData) activeHours.push(h);
-      }
-
       // ── Group stems into pages using a dynamic fit calculation ──
-      const cols = computePrintCols(grouped, stems, grid, activeHours);
+      const cols = computePrintCols(grouped, stems, grid);
       const stemGroups = [];
       for (let i = 0; i < stems.length; i += cols) {
         stemGroups.push(stems.slice(i, i + cols));
@@ -935,11 +947,9 @@
           hr.appendChild(th);
         });
 
-        // Data rows — only active hours that have data in this bucket
+        // Data rows — full contiguous range for this bucket (min span + any data outside it)
         const tbody = table.createTBody();
-        activeHours.forEach(h => {
-          const hasData = group.some(stem => (grid[bucket][h][stem] || []).length > 0);
-          if (!hasData) return;
+        getBucketHours(bucket, grid, group).forEach(h => {
           const row = tbody.insertRow();
           row.insertCell().textContent = formatHour(h);
           group.forEach(stem => {
@@ -985,13 +995,13 @@
         // Footnotes — only those whose notes appear in this page's stems
         const groupNotes = new Set();
         BUCKETS.forEach(bucket => {
-          activeHours.forEach(h => {
+          for (let h = 0; h < 24; h++) {
             group.forEach(stem => {
               (grid[bucket][h][stem] || []).forEach(item =>
                 item.notes.forEach(n => groupNotes.add(n))
               );
             });
-          });
+          }
         });
 
         const pageFootnotes = Array.from(letterMap.entries())
@@ -1038,11 +1048,11 @@
       });
     }
 
-    function computePrintCols(grouped, stems, grid, activeHours) {
+    function computePrintCols(grouped, stems, grid) {
       for (let cols = Math.min(PRINT_MAX_COLS, stems.length); cols >= 1; cols--) {
         let allFit = true;
         for (let i = 0; i < stems.length; i += cols) {
-          if (!printGroupFits(grouped, stems.slice(i, i + cols), grid, activeHours)) {
+          if (!printGroupFits(grouped, stems.slice(i, i + cols), grid)) {
             allFit = false;
             break;
           }
@@ -1055,7 +1065,7 @@
     // Measure whether a group of stems fits in one print cell by rendering a hidden
     // table that includes both the header row and a data row sized to the maximum
     // departure count per stem — so the fit check reflects actual content width.
-    function printGroupFits(grouped, group, grid, activeHours) {
+    function printGroupFits(grouped, group, grid) {
       const wrapper = document.createElement("div");
       wrapper.style.cssText =
         "position:absolute;visibility:hidden;left:-9999px;top:-9999px;" +
@@ -1087,9 +1097,9 @@
       group.forEach(stem => {
         let maxDeps = 0;
         BUCKETS.forEach(b => {
-          activeHours.forEach(h => {
+          for (let h = 0; h < 24; h++) {
             maxDeps = Math.max(maxDeps, (grid[b][h][stem] || []).length);
-          });
+          }
         });
         const cell = dr.insertCell();
         cell.style.cssText = "padding:1px 3px;white-space:nowrap;font-family:monospace;";
